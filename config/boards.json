@@ -1,0 +1,504 @@
+{
+  "companies": [
+    {
+      "company_name": "Synopsys",
+      "career_url": "https://careers.synopsys.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor / EDA",
+      "location": "Bengaluru, Hyderabad, Noida",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Qualcomm",
+      "career_url": "https://careers.qualcomm.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru, Hyderabad, Chennai",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Texas Instruments",
+      "career_url": "https://careers.ti.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Infineon Technologies",
+      "career_url": "https://www.infineon.com/cms/en/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Intel",
+      "career_url": "https://jobs.intel.com",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru, Hyderabad",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Bosch",
+      "career_url": "https://www.bosch.in/careers",
+      "ats_provider": "smartrecruiters",
+      "board_identifier": "BoschGroup",
+      "category": "Engineering / Embedded",
+      "location": "Bengaluru, Coimbatore, Pune",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "NXP Semiconductors",
+      "career_url": "https://www.nxp.com/company/about-nxp/careers",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru, Noida, Pune",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Micron Technology",
+      "career_url": "https://careers.micron.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Hyderabad, Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "AMD",
+      "career_url": "https://careers.amd.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru, Hyderabad",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Cisco",
+      "career_url": "https://jobs.cisco.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Networking / IT",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "IBM",
+      "career_url": "https://www.ibm.com/in-en/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT / Consulting",
+      "location": "Bengaluru, Hyderabad, Pune",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "TCS",
+      "career_url": "https://www.tcs.com/careers/india",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Pan India",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Infosys",
+      "career_url": "https://www.infosys.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Mysuru, Pan India",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Wipro",
+      "career_url": "https://careers.wipro.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Pan India",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Accenture",
+      "career_url": "https://www.accenture.com/in-en/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT / Consulting",
+      "location": "Bengaluru, Pan India",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Cognizant",
+      "career_url": "https://careers.cognizant.com/india-en",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Chennai, Pan India",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Siemens",
+      "career_url": "https://jobs.siemens.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Engineering / Automation",
+      "location": "Bengaluru, Pune, Mumbai",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "GE HealthCare",
+      "career_url": "https://careers.gehealthcare.com",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Healthcare Engineering",
+      "location": "Bengaluru",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "NVIDIA",
+      "career_url": "https://www.nvidia.com/en-in/about-nvidia/careers",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor / AI",
+      "location": "Bengaluru, Pune, Hyderabad",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Broadcom",
+      "career_url": "https://www.broadcom.com/company/careers",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "MediaTek",
+      "career_url": "https://careers.mediatek.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru, Noida",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Cadence Design Systems",
+      "career_url": "https://www.cadence.com/en_US/home/company/careers.html",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor / EDA",
+      "location": "Bengaluru, Noida, Pune",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Arm",
+      "career_url": "https://careers.arm.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Marvell Technology",
+      "career_url": "https://www.marvell.com/company/careers.html",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru, Pune, Hyderabad",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Analog Devices",
+      "career_url": "https://careers.analog.com",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Bengaluru",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "STMicroelectronics",
+      "career_url": "https://www.st.com/content/st_com/en/about/careers.html",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Semiconductor",
+      "location": "Greater Noida, Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Western Digital",
+      "career_url": "https://jobs.westerndigital.com",
+      "ats_provider": "smartrecruiters",
+      "board_identifier": "WesternDigital",
+      "category": "Semiconductor / Storage",
+      "location": "Bengaluru",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "Honeywell",
+      "career_url": "https://careers.honeywell.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Engineering / Aerospace",
+      "location": "Bengaluru, Hyderabad, Madurai",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Schneider Electric",
+      "career_url": "https://careers.se.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Engineering / Energy",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "ABB",
+      "career_url": "https://careers.abb",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Engineering / Automation",
+      "location": "Bengaluru",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Philips",
+      "career_url": "https://www.careers.philips.com",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Healthcare Engineering",
+      "location": "Bengaluru, Pune",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "Dell Technologies",
+      "career_url": "https://jobs.dell.com",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Hardware / IT",
+      "location": "Bengaluru, Hyderabad",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "HPE",
+      "career_url": "https://careers.hpe.com",
+      "ats_provider": "workday",
+      "board_identifier": "",
+      "category": "Hardware / IT",
+      "location": "Bengaluru",
+      "connector_status": "pending_verification",
+      "enabled": false
+    },
+    {
+      "company_name": "SAP",
+      "career_url": "https://jobs.sap.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Enterprise Software",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Oracle",
+      "career_url": "https://www.oracle.com/in/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Enterprise Software",
+      "location": "Bengaluru, Hyderabad",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "HCLTech",
+      "career_url": "https://www.hcltech.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Noida, Chennai",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "LTIMindtree",
+      "career_url": "https://www.ltimindtree.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Mumbai, Pune",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Tech Mahindra",
+      "career_url": "https://careers.techmahindra.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "IT Services",
+      "location": "Bengaluru, Pune, Hyderabad",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Postman",
+      "career_url": "https://www.postman.com/company/careers",
+      "ats_provider": "greenhouse",
+      "board_identifier": "",
+      "category": "Product / Startup",
+      "location": "Bengaluru, Remote",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Cloudflare",
+      "career_url": "https://www.cloudflare.com/careers",
+      "ats_provider": "greenhouse",
+      "board_identifier": "cloudflare",
+      "category": "Product / Cloud",
+      "location": "Bengaluru, Hyderabad",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "Razorpay",
+      "career_url": "https://razorpay.com/jobs",
+      "ats_provider": "greenhouse",
+      "board_identifier": "razorpaysoftwareprivatelimited",
+      "category": "Indian Startup / Fintech",
+      "location": "Bengaluru",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "BrowserStack",
+      "career_url": "https://www.browserstack.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Indian Product / QA",
+      "location": "Mumbai, Bengaluru, Remote",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "PhonePe",
+      "career_url": "https://www.phonepe.com/careers",
+      "ats_provider": "greenhouse",
+      "board_identifier": "",
+      "category": "Indian Startup / Fintech",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Swiggy",
+      "career_url": "https://careers.swiggy.com",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Indian Startup",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Zomato",
+      "career_url": "https://www.zomato.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Indian Startup",
+      "location": "Gurugram, Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "CRED",
+      "career_url": "https://careers.cred.club",
+      "ats_provider": "lever",
+      "board_identifier": "cred",
+      "category": "Indian Startup / Fintech",
+      "location": "Bengaluru",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "Groww",
+      "career_url": "https://groww.in/careers",
+      "ats_provider": "greenhouse",
+      "board_identifier": "groww",
+      "category": "Indian Startup / Fintech",
+      "location": "Bengaluru",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "Freshworks",
+      "career_url": "https://www.freshworks.com/company/careers",
+      "ats_provider": "smartrecruiters",
+      "board_identifier": "Freshworks",
+      "category": "Indian SaaS",
+      "location": "Chennai, Bengaluru",
+      "connector_status": "active",
+      "enabled": true
+    },
+    {
+      "company_name": "Zoho",
+      "career_url": "https://www.zoho.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Indian Product",
+      "location": "Chennai, Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    },
+    {
+      "company_name": "Ather Energy",
+      "career_url": "https://www.atherenergy.com/careers",
+      "ats_provider": "portal",
+      "board_identifier": "",
+      "category": "Indian EV / Embedded",
+      "location": "Bengaluru",
+      "connector_status": "portal_only",
+      "enabled": false
+    }
+  ]
+}

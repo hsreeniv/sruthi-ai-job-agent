@@ -1,0 +1,106 @@
+{
+  "name": "SRUTHI M",
+  "headline_core": "Electronics & Communication Engineering  |  VLSI & Embedded Systems  |  Python & Software",
+  "headline_it": "Python & Software Development  |  AI/ML & Data Analytics  |  B.Tech ECE (2027)",
+  "degree": "B.Tech — Electronics & Communication Engineering",
+  "college": "Aditya College of Engineering, Madanapalle",
+  "university": "JNTU Anantapur",
+  "batch": "2023-2027",
+  "graduation_month": "May 2027",
+  "passout_year": 2027,
+  "backlogs": "No active backlogs",
+  "cgpa": "7.5/10",
+  "experience_level": "Fresher",
+  "locations": [
+    "Bengaluru (priority)",
+    "Anywhere in India"
+  ],
+  "tracks": [
+    "IT",
+    "Core Engineering"
+  ],
+  "salary_target_lpa": "4-8 (where applicable)",
+  "contact_line": "+91 9014771797  ·  shrutimurugesh@gmail.com  ·  Kuppam, Andhra Pradesh",
+  "summary_core": "Final-year B.Tech (ECE) student with industry training in VLSI design and verification and hands-on embedded systems experience (Embedded C, Arduino, interrupt-driven design), backed by a solid foundation in digital electronics, microprocessors and signals. Complemented by software skills in C, Python, Git and Linux, and an AI internship at iStudio, Pune. Seeking an entry-level role in core electronics, VLSI or embedded systems, with strong capability to contribute in IT and software roles.",
+  "summary_it": "Final-year B.Tech (ECE) student with hands-on software and AI/ML experience in Python (NumPy, scikit-learn, OpenCV, Matplotlib), C, Java (Basic), Git, and Linux, including an Artificial Intelligence internship at iStudio, Pune. Backed by a strong foundation in Data Structures & Algorithms (C), Linear Algebra & Probability, and VLSI/embedded systems training. Seeking an entry-level role in software engineering, data analytics, or AI/ML.",
+  "education": [
+    {
+      "degree": "B.Tech — Electronics & Communication Engineering",
+      "dates": "Sep 2023 – May 2027",
+      "institution": "Aditya College of Engineering, Madanapalle | JNTU Anantapur  |  CGPA: 7.5/10",
+      "details": "Coursework: Digital Electronics, Microprocessors & Microcontrollers, Signals & Systems, Data Structures & Algorithms (C), Linear Algebra & Probability"
+    },
+    {
+      "degree": "Intermediate (Class XII) — MPC",
+      "dates": "2021 – 2023",
+      "institution": "Sri Chaitanya Junior College, Tirupathi  |  Score: 90.3%",
+      "details": ""
+    }
+  ],
+  "skills": [
+    "C", "Python", "Embedded C", "Java", "NumPy", "scikit-learn", "OpenCV", "Matplotlib",
+    "Git", "GitHub", "Linux", "MATLAB", "Arduino", "VLSI", "RTL", "UART", "SPI", "I2C"
+  ],
+  "skill_groups": {
+    "Core Electronics & VLSI": "RTL design concepts, digital logic design, FSMs, functional verification, testbench development, timing analysis, ModelSim (conceptual), MATLAB",
+    "Embedded Systems": "Embedded C, Arduino UNO / Arduino IDE, microcontrollers, hardware interrupts, 7-segment display multiplexing",
+    "Protocols": "UART, SPI, I2C (academic coursework)",
+    "Languages": "C (Proficient), Python (Intermediate), Embedded C (Familiar), Java (Basic)",
+    "Software & Tools": "Git, GitHub, Linux, Windows, Jupyter Notebook, Google Workspace; Python libraries: NumPy, scikit-learn, OpenCV, Matplotlib"
+  },
+  "internship": [
+    {
+      "title": "VLSI Design & Verification Training — VLSI Guru Institute, Bengaluru",
+      "dates": "May 2025 – Jul 2025",
+      "subtitle": "Offline Institute Training | Certified by VLSI Guru Institute",
+      "track": "Core Engineering",
+      "bullets": [
+        "Completed a 2-month offline program on digital design flows and verification methodologies.",
+        "Studied RTL design concepts, functional verification approaches, testbench development fundamentals and timing analysis principles.",
+        "Earned certification on successful completion of all coursework and assessments."
+      ]
+    },
+    {
+      "title": "Artificial Intelligence Intern — iStudio, Pune",
+      "dates": "Apr 2026 – May 2026",
+      "subtitle": "Selected via Internship Common Aptitude Test (iCAT)",
+      "track": "IT",
+      "bullets": [
+        "Developed a two-stage face recognition system in Python using PCA (Eigenfaces) and an MLP neural network classifier on the LFW dataset.",
+        "Implemented imposter detection using distance-threshold logic (ACCEPTED / REJECTED output).",
+        "Delivered the full pipeline from data acquisition to visualisation; earned a Training & Internship Certificate."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "Real-Time Digital Clock — Arduino UNO",
+      "dates": "Aug – Sep 2025",
+      "subtitle": "Embedded C · Arduino UNO · 7-Segment Display | Team Project (6 Members)",
+      "track": "Core Engineering",
+      "bullets": [
+        "Led a 6-member team to deliver a real-time digital clock in 4 weeks, managing tasks, hardware integration and documentation.",
+        "Programmed timekeeping logic and display-multiplexing routines in Embedded C with hardware interrupt handling for accurate real-time operation."
+      ]
+    },
+    {
+      "title": "Face Recognition System using PCA & Neural Networks",
+      "dates": "Apr – May 2026",
+      "subtitle": "Python · scikit-learn · OpenCV · NumPy · Matplotlib | iStudio AI Internship Final Project",
+      "track": "IT",
+      "bullets": [
+        "Built a PCA-based Eigenface pipeline reducing image vectors from 10,000 dimensions to k components (k = 2, 5, 10, 20) for efficient classification.",
+        "Trained and tested an MLP classifier on the LFW dataset and visualised the Mean Face and Eigenfaces using Matplotlib."
+      ]
+    }
+  ],
+  "certifications": [
+    "VLSI Design & Verification — VLSI Guru Institute, Bengaluru (Jul 2025)",
+    "AI Training & Internship Certificate — iStudio, Pune (May 2026)"
+  ],
+  "achievements": [
+    "Qualified the competitive iCAT by iStudio, Pune, securing an internship from a national applicant pool.",
+    "Scored 100% in Class X (State Board) and 90.3% in Class XII (MPC)."
+  ],
+  "daily_discovery_target": 100
+}
