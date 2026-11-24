@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import re
 import time
 from typing import Any
@@ -32,13 +33,22 @@ IT_SOFTWARE_QUERIES = [
 
 DEFAULT_QUERIES = CORE_ECE_QUERIES + IT_SOFTWARE_QUERIES
 
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+]
+
 
 def _fetch_linkedin_guest_24h(
     query: str,
     location: str = "India",
     limit: int = 15,
-) -> list[dict[str, Any]]:
-    """Public LinkedIn guest jobs endpoint filtered strictly to past 24 hours (f_TPR=r86400)."""
+) -> tuple[list[dict[str, Any]], bool]:
+    """Public LinkedIn guest jobs endpoint filtered strictly to past 24 hours (f_TPR=r86400).
+
+    Returns (jobs, rate_limited).
+    """
     url = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
     params = {
         "keywords": query,
@@ -46,10 +56,17 @@ def _fetch_linkedin_guest_24h(
         "f_TPR": "r86400",  # Past 24 hours
         "start": 0,
     }
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    headers = {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     jobs: list[dict[str, Any]] = []
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=20)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        if resp.status_code == 429:
+            LOG.warning("LinkedIn guest rate-limited (429) on '%s'. Circuit breaker tripped.", query)
+            return [], True
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         for card in soup.select("li")[:limit]:
@@ -73,9 +90,14 @@ def _fetch_linkedin_guest_24h(
                     "jd": f"{title_txt} at {comp_txt} | Query: {query}. Open URL to review full JD.",
                 }
             )
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 429:
+            LOG.warning("LinkedIn guest rate-limited (429) on '%s'. Circuit breaker tripped.", query)
+            return [], True
+        LOG.warning("LinkedIn guest fallback failed for '%s': %s", query, exc)
     except Exception as exc:
         LOG.warning("LinkedIn guest fallback failed for '%s': %s", query, exc)
-    return jobs
+    return jobs, False
 
 
 def _dedupe_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -114,21 +136,34 @@ def fetch_multi_source_24h(
     target_sites = sites or ["linkedin", "indeed", "naukri"]
     collected: list[dict[str, Any]] = []
     errors: list[str] = []
+    linkedin_rate_limited = False
 
     try:
         from jobspy import scrape_jobs  # type: ignore
     except ImportError:
         errors.append("python-jobspy not installed; using LinkedIn 24h guest fallback only.")
-        for q in search_terms:
-            collected.extend(_fetch_linkedin_guest_24h(q, location=location, limit=results_per_site))
-            time.sleep(2.5)
+        for idx, q in enumerate(search_terms):
+            if linkedin_rate_limited:
+                break
+            if idx > 0:
+                time.sleep(random.uniform(2.5, 4.5))
+            guest_jobs, rate_limited = _fetch_linkedin_guest_24h(q, location=location, limit=results_per_site)
+            collected.extend(guest_jobs)
+            if rate_limited:
+                linkedin_rate_limited = True
+                errors.append("LinkedIn rate-limited (429); skipped remaining LinkedIn guest queries for this run.")
+                break
         return _dedupe_jobs(collected), errors
 
-    for q in search_terms:
+    for idx, q in enumerate(search_terms):
         clean_q = q.replace('"', "")
+        active_sites = [s for s in target_sites if not (linkedin_rate_limited and s.lower() == "linkedin")]
+        if not active_sites:
+            break
+
         try:
             df = scrape_jobs(
-                site_name=target_sites,
+                site_name=active_sites,
                 search_term=q,
                 location=location,
                 results_wanted=results_per_site,
@@ -137,7 +172,14 @@ def fetch_multi_source_24h(
                 linkedin_fetch_description=False,
             )
             if df is None or df.empty:
-                collected.extend(_fetch_linkedin_guest_24h(q, location=location, limit=results_per_site))
+                if not linkedin_rate_limited:
+                    guest_jobs, rate_limited = _fetch_linkedin_guest_24h(
+                        q, location=location, limit=results_per_site
+                    )
+                    collected.extend(guest_jobs)
+                    if rate_limited:
+                        linkedin_rate_limited = True
+                        errors.append("LinkedIn rate-limited (429); skipped remaining LinkedIn guest queries.")
             else:
                 for _, row in df.iterrows():
                     title = str(row.get("title") or "").strip()
@@ -163,8 +205,14 @@ def fetch_multi_source_24h(
                         )
         except Exception as exc:
             errors.append(f"Multi-source fetch failed for '{q}': {exc}")
-            collected.extend(_fetch_linkedin_guest_24h(q, location=location, limit=10))
+            if not linkedin_rate_limited:
+                guest_jobs, rate_limited = _fetch_linkedin_guest_24h(q, location=location, limit=10)
+                collected.extend(guest_jobs)
+                if rate_limited:
+                    linkedin_rate_limited = True
+                    errors.append("LinkedIn rate-limited (429); skipped remaining LinkedIn guest queries.")
         finally:
-            time.sleep(2.5)  # Prevent LinkedIn 429 rate-limit spikes
+            if idx < len(search_terms) - 1:
+                time.sleep(random.uniform(2.5, 4.0))
 
     return _dedupe_jobs(collected), errors
