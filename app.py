@@ -215,6 +215,8 @@ profile = load_profile()
 # Session state for clickable KPI navigation & filters
 if "active_view" not in st.session_state:
     st.session_state["active_view"] = "📊 Live Dashboard"
+if "pending_view" in st.session_state:
+    st.session_state["active_view"] = st.session_state.pop("pending_view")
 if "quick_mode" not in st.session_state:
     st.session_state["quick_mode"] = "All"
 if "kpi_elig_override" not in st.session_state:
@@ -624,7 +626,7 @@ if active_view == "📊 Live Dashboard":
                 with st.spinner(f"NEO AI is tailoring {len(unprepped)} 1-page ATS PDF resumes..."):
                     for j in unprepped:
                         prepare_application_package(j, profile)
-                    st.session_state["active_view"] = "⚡ NEO 1-Tap Queue"
+                    st.session_state["pending_view"] = "⚡ NEO 1-Tap Queue"
                     st.rerun()
 
     filtered_jobs = _apply_filters(active_jobs, quick_mode=quick_mode)
