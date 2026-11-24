@@ -1,308 +1,304 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer
 
-from src.ats_scorer import extract_jd_keywords, score_resume_against_jd
+RESUMES_DIR = Path("data/resumes")
+RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_DIR = Path("output/resumes")
-NAVY = RGBColor(0x1B, 0x36, 0x5D)
-DARK = RGBColor(0x22, 0x22, 0x22)
-MUTED = RGBColor(0x55, 0x55, 0x55)
-
-
-def _safe_filename(text: str, max_len: int = 32) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", text or "").strip("_")
-    return (cleaned or "Role")[:max_len]
-
-
-def _add_bottom_border(paragraph, color_hex: str = "1B365D", size: str = "6") -> None:
-    pPr = paragraph._p.get_or_add_pPr()
-    pBdr = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
-    bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), size)
-    bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), color_hex)
-    pBdr.append(bottom)
-    pPr.append(pBdr)
+TECH_KEYWORDS = [
+    "verilog", "systemverilog", "vlsi", "rtl", "fpga", "asic", "digital", "cmos",
+    "embedded", "firmware", "microcontroller", "arm", "stm32", "esp32", "arduino",
+    "rtos", "i2c", "spi", "uart", "can", "pcb", "matlab", "simulink", "vivado",
+    "cadence", "synopsys", "c", "c++", "python", "java", "sql", "mysql", "linux",
+    "git", "github", "docker", "aws", "machine learning", "ai", "opencv", "iot",
+    "selenium", "playwright", "testing", "qa", "automation", "rest", "api", "html",
+    "css", "javascript", "data structures", "algorithms", "networking", "tcp/ip",
+]
 
 
-def _add_section_heading(doc: Document, title: str) -> None:
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(5)
-    p.paragraph_format.space_after = Pt(1.5)
-    p.paragraph_format.line_spacing = 1.03
-    p.paragraph_format.keep_with_next = True
-    run = p.add_run(title.upper())
-    run.bold = True
-    run.font.name = "Calibri"
-    run.font.size = Pt(10)
-    run.font.color.rgb = NAVY
-    _add_bottom_border(p)
+def _slugify(text: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", (text or "role").strip()).strip("_")
+    return cleaned[:40] or "role"
 
 
-def _add_dated_header(doc: Document, left_text: str, right_text: str) -> None:
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(2)
-    p.paragraph_format.space_after = Pt(0.5)
-    p.paragraph_format.line_spacing = 1.03
-    p.paragraph_format.keep_with_next = True
-    p.paragraph_format.tab_stops.add_tab_stop(Inches(7.5), WD_TAB_ALIGNMENT.RIGHT)
-
-    r_left = p.add_run(left_text)
-    r_left.bold = True
-    r_left.font.name = "Calibri"
-    r_left.font.size = Pt(9.2)
-    r_left.font.color.rgb = DARK
-
-    if right_text:
-        r_right = p.add_run(f"\t{right_text}")
-        r_right.bold = True
-        r_right.font.name = "Calibri"
-        r_right.font.size = Pt(8.8)
-        r_right.font.color.rgb = MUTED
+def _extract_jd_keywords(jd_text: str) -> list[str]:
+    lower = (jd_text or "").lower()
+    found = []
+    for kw in TECH_KEYWORDS:
+        if re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", lower):
+            found.append(kw)
+    return found
 
 
-def _add_body(doc: Document, text: str, italic: bool = False, color: RGBColor = DARK, space_after: float = 1.0) -> None:
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(space_after)
-    p.paragraph_format.line_spacing = 1.03
-    run = p.add_run(text)
-    run.italic = italic
-    run.font.name = "Calibri"
-    run.font.size = Pt(8.8)
-    run.font.color.rgb = color
+def _flatten_profile_skills(profile: dict) -> list[str]:
+    skills = profile.get("skills", [])
+    if isinstance(skills, dict):
+        flat = []
+        for vals in skills.values():
+            if isinstance(vals, list):
+                flat.extend(str(v) for v in vals)
+            elif vals:
+                flat.append(str(vals))
+        return flat
+    if isinstance(skills, list):
+        return [str(s) for s in skills]
+    return []
 
 
-def _add_bullet(doc: Document, text: str) -> None:
-    p = doc.add_paragraph()
-    p.paragraph_format.left_indent = Inches(0.16)
-    p.paragraph_format.first_line_indent = Inches(-0.11)
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0.8)
-    p.paragraph_format.line_spacing = 1.03
-    run = p.add_run(f"•  {text}")
-    run.font.name = "Calibri"
-    run.font.size = Pt(8.8)
-    run.font.color.rgb = DARK
+def _compute_ats_report(resume_text: str, jd_text: str) -> dict:
+    jd_kws = _extract_jd_keywords(jd_text)
+    res_lower = resume_text.lower()
+    matched = [kw for kw in jd_kws if re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", res_lower)]
+    missing = [kw for kw in jd_kws if kw not in matched]
+
+    match_pct = int(round((len(matched) / len(jd_kws)) * 100)) if jd_kws else 80
+    words = len(resume_text.split())
+    length_bonus = 15 if 220 <= words <= 650 else 8
+    ats_score = min(100, int(round(match_pct * 0.85 + length_bonus)))
+
+    if ats_score >= 85:
+        grade = "Excellent"
+    elif ats_score >= 70:
+        grade = "Strong"
+    elif ats_score >= 55:
+        grade = "Moderate"
+    else:
+        grade = "Needs Review"
+
+    return {
+        "ats_score": ats_score,
+        "grade": grade,
+        "keyword_match_pct": match_pct,
+        "word_count": words,
+        "matched_keywords": matched,
+        "missing_keywords": missing[:12],
+    }
 
 
-def _prioritize_skill_group_items(group_text: str, jd_keywords: list[str]) -> tuple[int, str]:
-    """Reorder verified skills inside a skill group so JD-matching items appear first."""
-    if not jd_keywords:
-        return 0, group_text
+def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) -> dict:
+    jd_text = f"{job.get('title', '')}\n{job.get('jd', '')}"
+    jd_kws = set(_extract_jd_keywords(jd_text))
 
-    clauses = [c.strip() for c in group_text.split(";") if c.strip()]
-    total_hits = 0
-    reordered_clauses: list[str] = []
+    all_skills = _flatten_profile_skills(profile)
+    # Prioritize skills that appear in the JD without fabricating anything
+    prioritized = sorted(
+        all_skills,
+        key=lambda s: (0 if any(k in s.lower() for k in jd_kws) else 1, s.lower()),
+    )
 
-    for clause in clauses:
-        prefix = ""
-        body = clause
-        if ":" in clause:
-            prefix, body = clause.split(":", 1)
-            prefix = prefix.strip() + ": "
-            body = body.strip()
+    projects = profile.get("projects", [])
+    projects_sorted = sorted(
+        projects,
+        key=lambda p: -sum(1 for k in jd_kws if k in str(p).lower()),
+    )
 
-        items = [i.strip() for i in body.split(",") if i.strip()]
-        scored_items: list[tuple[int, int, str]] = []
-        for idx, item in enumerate(items):
-            item_low = item.lower()
-            hits = sum(1 for kw in jd_keywords if kw in item_low)
-            total_hits += hits
-            scored_items.append((hits, -idx, item))
-
-        scored_items.sort(reverse=True)
-        reordered_body = ", ".join(item for _, _, item in scored_items)
-        reordered_clauses.append(f"{prefix}{reordered_body}")
-
-    return total_hits, "; ".join(reordered_clauses)
-
-
-def _score_entry_overlap(entry: dict[str, Any], jd_keywords: list[str], preferred_track: str) -> tuple[int, int]:
-    blob = " ".join(
-        [
-            entry.get("title", ""),
-            entry.get("subtitle", ""),
-            " ".join(entry.get("bullets", [])),
-        ]
-    ).lower()
-    kw_hits = sum(1 for kw in jd_keywords if kw in blob)
-    track_bonus = 1 if entry.get("track") == preferred_track else 0
-    return (kw_hits, track_bonus)
-
-
-def create_tailored_resume_with_ats(
-    profile: dict[str, Any],
-    analysis: dict[str, Any] | None,
-    job: dict[str, Any],
-) -> tuple[str, dict[str, Any]]:
-    """Generate a single-page, JD-tailored .docx resume (zero fabrication) and return (path, ats_report)."""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    analysis = analysis or {}
-    track = analysis.get("track") or job.get("track") or "Core Engineering"
-    is_it = track == "IT"
-    preferred_track = "IT" if is_it else "Core Engineering"
-
-    jd_keywords = extract_jd_keywords(job.get("jd", ""), job.get("title", ""), analysis)
-
-    doc = Document()
-    for section in doc.sections:
-        section.top_margin = Inches(0.35)
-        section.bottom_margin = Inches(0.35)
-        section.left_margin = Inches(0.5)
-        section.right_margin = Inches(0.5)
-
-    # Header: Name, Headline, Contact
-    p_name = doc.add_paragraph()
-    p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_name.paragraph_format.space_before = Pt(0)
-    p_name.paragraph_format.space_after = Pt(0.5)
-    p_name.paragraph_format.line_spacing = 1.0
-    r_name = p_name.add_run(profile.get("name", "SRUTHI M"))
-    r_name.bold = True
-    r_name.font.name = "Calibri"
-    r_name.font.size = Pt(15)
-    r_name.font.color.rgb = NAVY
-
-    headline = profile.get("headline_it") if is_it else profile.get("headline_core")
-    if headline:
-        p_head = doc.add_paragraph()
-        p_head.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p_head.paragraph_format.space_before = Pt(0)
-        p_head.paragraph_format.space_after = Pt(0.5)
-        p_head.paragraph_format.line_spacing = 1.0
-        r_head = p_head.add_run(headline)
-        r_head.bold = True
-        r_head.font.name = "Calibri"
-        r_head.font.size = Pt(9.2)
-        r_head.font.color.rgb = DARK
-
-    p_contact = doc.add_paragraph()
-    p_contact.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_contact.paragraph_format.space_before = Pt(0)
-    p_contact.paragraph_format.space_after = Pt(2.5)
-    p_contact.paragraph_format.line_spacing = 1.0
-    r_contact = p_contact.add_run(profile.get("contact_line", ""))
-    r_contact.font.name = "Calibri"
-    r_contact.font.size = Pt(8.8)
-    r_contact.font.color.rgb = MUTED
-
-    # 1. Professional Summary
-    _add_section_heading(doc, "Professional Summary")
+    role_title = job.get("title") or "Engineering Intern / Fresher"
+    company = job.get("company") or "Target Organization"
     summary = (
-        profile.get("summary_it")
-        if is_it and profile.get("summary_it")
-        else profile.get("summary_core") or profile.get("summary", "")
-    )
-    _add_body(doc, summary, space_after=1.5)
-
-    # 2. Education
-    _add_section_heading(doc, "Education")
-    for edu in profile.get("education", []):
-        _add_dated_header(doc, edu.get("degree", ""), edu.get("dates", ""))
-        if edu.get("institution"):
-            _add_body(doc, edu["institution"], italic=True, color=MUTED, space_after=0.5)
-        if edu.get("details"):
-            _add_body(doc, edu["details"], space_after=1.2)
-
-    # 3. Technical Skills (dynamically prioritized by JD keyword matches)
-    _add_section_heading(doc, "Technical Skills")
-    skill_groups: dict[str, str] = profile.get("skill_groups", {})
-    default_order = (
-        ["Languages", "Software & Tools", "Embedded Systems", "Core Electronics & VLSI", "Protocols"]
-        if is_it
-        else ["Core Electronics & VLSI", "Embedded Systems", "Protocols", "Languages", "Software & Tools"]
+        (analysis or {}).get("tailored_summary")
+        or f"Final-year {profile.get('degree', 'B.Tech ECE')} student ({profile.get('batch', '2023-2027')}) "
+           f"targeting {role_title} at {company}. Strong foundation in "
+           f"{', '.join(prioritized[:6]) if prioritized else 'Electronics, Embedded Systems, and Python'}."
     )
 
-    ranked_groups: list[tuple[int, int, str, str]] = []
-    for idx, group_name in enumerate(default_order):
-        if group_name in skill_groups:
-            hits, reordered_text = _prioritize_skill_group_items(skill_groups[group_name], jd_keywords)
-            ranked_groups.append((hits, -idx, group_name, reordered_text))
+    return {
+        "name": profile.get("name", "SRUTHI M"),
+        "contact": " | ".join(
+            x for x in [
+                profile.get("location", "Bengaluru, Karnataka"),
+                profile.get("phone", ""),
+                profile.get("email", ""),
+                profile.get("linkedin", ""),
+                profile.get("github", ""),
+            ] if x
+        ),
+        "summary": summary,
+        "education": {
+            "degree": profile.get("degree", "B.Tech — Electronics & Communication Engineering"),
+            "college": f"{profile.get('college', '')} ({profile.get('university', '')})".strip(" ()"),
+            "timeline": f"Batch {profile.get('batch', '2023-2027')} | Graduating {profile.get('graduation_month', 'May 2027')} | {profile.get('backlogs', 'No active backlogs')}",
+        },
+        "skills": prioritized,
+        "experience": profile.get("experience", []) or profile.get("internships", []),
+        "projects": projects_sorted[:4],
+        "certifications": profile.get("certifications", []),
+    }
 
-    ranked_groups.sort(reverse=True)
 
-    for _, _, group_name, group_text in ranked_groups:
+def _write_pdf(sections: dict, pdf_path: Path) -> None:
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=A4,
+        leftMargin=0.55 * inch,
+        rightMargin=0.55 * inch,
+        topMargin=0.45 * inch,
+        bottomMargin=0.45 * inch,
+    )
+    styles = getSampleStyleSheet()
+    name_style = ParagraphStyle("Name", parent=styles["Heading1"], fontSize=16, leading=19, textColor=colors.HexColor("#0f172a"), spaceAfter=2)
+    contact_style = ParagraphStyle("Contact", parent=styles["Normal"], fontSize=8.5, leading=11, textColor=colors.HexColor("#475569"), spaceAfter=6)
+    sec_style = ParagraphStyle("Sec", parent=styles["Heading2"], fontSize=10.5, leading=13, textColor=colors.HexColor("#1e3a8a"), spaceBefore=7, spaceAfter=3)
+    body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=9.2, leading=12.5, textColor=colors.HexColor("#1e293b"), spaceAfter=3)
+
+    story = [
+        Paragraph(sections["name"], name_style),
+        Paragraph(sections["contact"], contact_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cbd5e1")),
+        Spacer(1, 4),
+        Paragraph("PROFESSIONAL SUMMARY", sec_style),
+        Paragraph(sections["summary"], body_style),
+        Paragraph("EDUCATION", sec_style),
+        Paragraph(f"<b>{sections['education']['degree']}</b> — {sections['education']['college']}", body_style),
+        Paragraph(sections["education"]["timeline"], body_style),
+    ]
+
+    if sections["skills"]:
+        story.append(Paragraph("TECHNICAL SKILLS", sec_style))
+        story.append(Paragraph(", ".join(sections["skills"]), body_style))
+
+    if sections["experience"]:
+        story.append(Paragraph("INTERNSHIPS &amp; TRAINING", sec_style))
+        for exp in sections["experience"]:
+            if isinstance(exp, dict):
+                line = f"<b>{exp.get('role', exp.get('title', ''))}</b> — {exp.get('company', exp.get('organization', ''))} ({exp.get('duration', '')})"
+                story.append(Paragraph(line, body_style))
+                if exp.get("description"):
+                    story.append(Paragraph(f"• {exp['description']}", body_style))
+            else:
+                story.append(Paragraph(f"• {exp}", body_style))
+
+    if sections["projects"]:
+        story.append(Paragraph("PROJECTS", sec_style))
+        for proj in sections["projects"]:
+            if isinstance(proj, dict):
+                story.append(Paragraph(f"<b>{proj.get('name', proj.get('title', 'Project'))}</b>", body_style))
+                desc = proj.get("description") or proj.get("summary") or ""
+                if desc:
+                    story.append(Paragraph(f"• {desc}", body_style))
+            else:
+                story.append(Paragraph(f"• {proj}", body_style))
+
+    if sections["certifications"]:
+        story.append(Paragraph("CERTIFICATIONS", sec_style))
+        for cert in sections["certifications"]:
+            story.append(Paragraph(f"• {cert}", body_style))
+
+    doc.build(story)
+
+
+def _write_docx(sections: dict, docx_path: Path) -> None:
+    doc = Document()
+    for sec in doc.sections:
+        sec.top_margin = Inches(0.5)
+        sec.bottom_margin = Inches(0.5)
+        sec.left_margin = Inches(0.6)
+        sec.right_margin = Inches(0.6)
+
+    def add_heading_line(text: str) -> None:
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0.8)
-        p.paragraph_format.line_spacing = 1.03
-        r_k = p.add_run(f"{group_name}: ")
-        r_k.bold = True
-        r_k.font.name = "Calibri"
-        r_k.font.size = Pt(8.8)
-        r_k.font.color.rgb = DARK
-        r_v = p.add_run(group_text)
-        r_v.font.name = "Calibri"
-        r_v.font.size = Pt(8.8)
-        r_v.font.color.rgb = DARK
+        p.paragraph_format.space_before = Pt(7)
+        p.paragraph_format.space_after = Pt(2)
+        r = p.add_run(text)
+        r.bold = True
+        r.font.size = Pt(10.5)
+        r.font.color.rgb = RGBColor(0x1E, 0x3A, 0x8A)
 
-    # 4. Internships & Training
-    _add_section_heading(doc, "Internships & Training")
-    internships = sorted(
-        list(profile.get("internship", [])),
-        key=lambda x: _score_entry_overlap(x, jd_keywords, preferred_track),
-        reverse=True,
+    p_name = doc.add_paragraph()
+    p_name.paragraph_format.space_after = Pt(2)
+    r_name = p_name.add_run(sections["name"])
+    r_name.bold = True
+    r_name.font.size = Pt(16)
+
+    p_contact = doc.add_paragraph(sections["contact"])
+    p_contact.paragraph_format.space_after = Pt(6)
+    for run in p_contact.runs:
+        run.font.size = Pt(8.5)
+
+    add_heading_line("PROFESSIONAL SUMMARY")
+    doc.add_paragraph(sections["summary"]).runs[0].font.size = Pt(9.5)
+
+    add_heading_line("EDUCATION")
+    p_ed = doc.add_paragraph()
+    r_ed = p_ed.add_run(f"{sections['education']['degree']} — {sections['education']['college']}")
+    r_ed.bold = True
+    r_ed.font.size = Pt(9.5)
+    p_ed2 = doc.add_paragraph(sections["education"]["timeline"])
+    p_ed2.runs[0].font.size = Pt(9)
+
+    if sections["skills"]:
+        add_heading_line("TECHNICAL SKILLS")
+        doc.add_paragraph(", ".join(sections["skills"])).runs[0].font.size = Pt(9.5)
+
+    if sections["experience"]:
+        add_heading_line("INTERNSHIPS & TRAINING")
+        for exp in sections["experience"]:
+            if isinstance(exp, dict):
+                p = doc.add_paragraph()
+                r = p.add_run(f"{exp.get('role', exp.get('title', ''))} — {exp.get('company', exp.get('organization', ''))} ({exp.get('duration', '')})")
+                r.bold = True
+                r.font.size = Pt(9.5)
+                if exp.get("description"):
+                    doc.add_paragraph(f"• {exp['description']}").runs[0].font.size = Pt(9)
+            else:
+                doc.add_paragraph(f"• {exp}").runs[0].font.size = Pt(9)
+
+    if sections["projects"]:
+        add_heading_line("PROJECTS")
+        for proj in sections["projects"]:
+            if isinstance(proj, dict):
+                p = doc.add_paragraph()
+                r = p.add_run(proj.get("name", proj.get("title", "Project")))
+                r.bold = True
+                r.font.size = Pt(9.5)
+                desc = proj.get("description") or proj.get("summary") or ""
+                if desc:
+                    doc.add_paragraph(f"• {desc}").runs[0].font.size = Pt(9)
+            else:
+                doc.add_paragraph(f"• {proj}").runs[0].font.size = Pt(9)
+
+    if sections["certifications"]:
+        add_heading_line("CERTIFICATIONS")
+        for cert in sections["certifications"]:
+            doc.add_paragraph(f"• {cert}").runs[0].font.size = Pt(9)
+
+    doc.save(str(docx_path))
+
+
+def create_tailored_resume_with_ats(profile: dict, analysis: dict | None, job: dict) -> tuple[str, dict]:
+    """Generates both PDF (for applying) and DOCX (for editing) and returns (pdf_path, ats_report)."""
+    sections = _build_tailored_sections(profile, analysis, job)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"Sruthi_{_slugify(job.get('company', 'Company'))}_{_slugify(job.get('title', 'Role'))}_{stamp}"
+
+    pdf_path = RESUMES_DIR / f"{base_name}.pdf"
+    docx_path = RESUMES_DIR / f"{base_name}.docx"
+
+    _write_pdf(sections, pdf_path)
+    _write_docx(sections, docx_path)
+
+    plain_text = " ".join(
+        [
+            sections["name"],
+            sections["summary"],
+            " ".join(sections["skills"]),
+            str(sections["experience"]),
+            str(sections["projects"]),
+            str(sections["certifications"]),
+        ]
     )
-    for item in internships:
-        _add_dated_header(doc, item.get("title", item.get("name", "")), item.get("dates", ""))
-        if item.get("subtitle"):
-            _add_body(doc, item["subtitle"], italic=True, color=MUTED, space_after=0.5)
-        for b in item.get("bullets", []):
-            _add_bullet(doc, b)
+    ats_report = _compute_ats_report(plain_text, f"{job.get('title', '')}\n{job.get('jd', '')}")
+    ats_report["pdf_path"] = str(pdf_path)
+    ats_report["docx_path"] = str(docx_path)
 
-    # 5. Projects
-    _add_section_heading(doc, "Projects")
-    projects = sorted(
-        list(profile.get("projects", [])),
-        key=lambda x: _score_entry_overlap(x, jd_keywords, preferred_track),
-        reverse=True,
-    )
-    for proj in projects:
-        _add_dated_header(doc, proj.get("title", proj.get("name", "")), proj.get("dates", ""))
-        if proj.get("subtitle"):
-            _add_body(doc, proj["subtitle"], italic=True, color=MUTED, space_after=0.5)
-        for b in proj.get("bullets", []):
-            _add_bullet(doc, b)
-
-    # 6. Certifications
-    certs = profile.get("certifications", [])
-    if certs:
-        _add_section_heading(doc, "Certifications")
-        for c in certs:
-            _add_bullet(doc, c)
-
-    # 7. Achievements
-    achievements = profile.get("achievements", [])
-    if achievements:
-        _add_section_heading(doc, "Achievements")
-        for a in achievements:
-            _add_bullet(doc, a)
-
-    company_slug = _safe_filename(job.get("company", "Company"), 24)
-    title_slug = _safe_filename(job.get("title", "Role"), 32)
-    out_path = OUTPUT_DIR / f"Sruthi_M_{company_slug}_{title_slug}.docx"
-    doc.save(out_path)
-
-    ats_report = score_resume_against_jd(out_path, job, analysis)
-    return str(out_path), ats_report
-
-
-def create_tailored_resume(
-    profile: dict[str, Any],
-    analysis: dict[str, Any] | None,
-    job: dict[str, Any],
-) -> str:
-    """Backward-compatible wrapper returning only the .docx path."""
-    path, _ = create_tailored_resume_with_ats(profile, analysis, job)
-    return path
+    # Return PDF as the primary path used for applying & autofill
+    return str(pdf_path), ats_report

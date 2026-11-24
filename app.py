@@ -371,7 +371,7 @@ def _ingest_google_batch(profile_data: dict) -> dict:
 
 
 def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
-    """Renders a job card with automatic JD-based PDF resume download + ATS score if prepared."""
+    """Renders a job card with automatic JD-based PDF (for applying) + Word (.docx) downloads and ATS score."""
     elig = job.get("eligibility_status", "Review required")
     pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
     score_val = int(job.get("match_score") or 0)
@@ -432,9 +432,20 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
                     type="primary",
                     width="stretch",
                 )
+            docx_file = resume_file.with_suffix(".docx")
+            if docx_file.exists():
+                with open(docx_file, "rb") as f_doc:
+                    st.download_button(
+                        "📝 Word (.docx)",
+                        f_doc,
+                        file_name=docx_file.name,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"{prefix}_dl_docx_{job['id']}",
+                        width="stretch",
+                    )
         else:
-            if st.button("📄 Auto-Tailor PDF", key=f"{prefix}_prep_{job['id']}", type="primary", width="stretch"):
-                with st.spinner("Tailoring PDF resume to JD & scoring ATS..."):
+            if st.button("📄 Auto-Tailor PDF & Word", key=f"{prefix}_prep_{job['id']}", type="primary", width="stretch"):
+                with st.spinner("Tailoring PDF & Word resume to JD and scoring ATS..."):
                     try:
                         prepare_application_package(job, profile)
                         st.rerun()
@@ -442,7 +453,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
                         st.error(str(e))
     with b2:
         if job.get("url"):
-            st.link_button("🔗 Apply", job["url"], width="stretch")
+            st.link_button("🔗 Apply (PDF)", job["url"], width="stretch")
     with b3:
         if st.button("🙈 Hide", key=f"{prefix}_hide_{job['id']}", width="stretch"):
             dismiss_job(job["id"], reason_status="dismissed")
@@ -462,9 +473,9 @@ with st.sidebar:
 
     st.markdown("### 🤖 NEO Auto-Resume Mode")
     neo_auto_prep = st.toggle(
-        "Auto-tailor JD PDF resumes after discovery",
+        "Auto-tailor JD PDF & Word resumes after discovery",
         value=True,
-        help="Automatically generates tailored 1-page ATS PDF resumes for top Core ECE & IT matches after discovery.",
+        help="Automatically generates tailored 1-page ATS PDF (for applying) & Word resumes for top Core ECE & IT matches.",
     )
     daily_goal = st.number_input("Daily application goal", min_value=1, max_value=25, value=5, step=1)
 
@@ -499,7 +510,7 @@ with st.sidebar:
                     for j in top_ece + top_it:
                         prepare_application_package(j, profile)
                     if top_ece or top_it:
-                        msg += f" | Auto-tailored {len(top_ece) + len(top_it)} JD PDF resumes"
+                        msg += f" | Auto-tailored {len(top_ece) + len(top_it)} JD PDF & Word resumes"
                 st.success(msg)
                 st.rerun()
             except Exception as e:
@@ -575,7 +586,7 @@ st.markdown(
     <div class="hero-banner">
       <div class="hero-left">
         <h1>🎯 Sruthi AI Job Agent — NEO Command Center</h1>
-        <p>Core ECE &amp; IT Split View • In-App 24h Web Radar • Automatic JD-Based ATS PDF Resumes</p>
+        <p>Core ECE &amp; IT Split View • In-App 24h Web Radar • Automatic JD-Based PDF &amp; Word Resumes</p>
       </div>
       <div class="hero-badge">
         <span class="live-dot"></span>LIVE &nbsp;|&nbsp; Last Sync: {last_sync}
@@ -729,12 +740,12 @@ if active_view == "📊 Live Dashboard":
             """,
             unsafe_allow_html=True,
         )
-        if st.button("⚡ Auto-Tailor Top 3 Core ECE PDF Resumes", key="auto_ece_3", type="primary", width="stretch"):
+        if st.button("⚡ Auto-Tailor Top 3 Core ECE PDF & Word", key="auto_ece_3", type="primary", width="stretch"):
             unprepped = [j for j in ece_jobs if j["id"] not in prepped_by_job_id][:3]
             if not unprepped:
-                st.info("Top 3 Core ECE jobs already have tailored PDF resumes ready below!")
+                st.info("Top 3 Core ECE jobs already have tailored PDF & Word resumes ready below!")
             else:
-                with st.spinner(f"Tailoring {len(unprepped)} Core ECE PDF resumes to their JDs..."):
+                with st.spinner(f"Tailoring {len(unprepped)} Core ECE PDF & Word resumes to their JDs..."):
                     for j in unprepped:
                         prepare_application_package(j, profile)
                     st.rerun()
@@ -756,12 +767,12 @@ if active_view == "📊 Live Dashboard":
             """,
             unsafe_allow_html=True,
         )
-        if st.button("⚡ Auto-Tailor Top 3 IT PDF Resumes", key="auto_it_3", type="primary", width="stretch"):
+        if st.button("⚡ Auto-Tailor Top 3 IT PDF & Word", key="auto_it_3", type="primary", width="stretch"):
             unprepped = [j for j in it_jobs if j["id"] not in prepped_by_job_id][:3]
             if not unprepped:
-                st.info("Top 3 IT jobs already have tailored PDF resumes ready below!")
+                st.info("Top 3 IT jobs already have tailored PDF & Word resumes ready below!")
             else:
-                with st.spinner(f"Tailoring {len(unprepped)} IT PDF resumes to their JDs..."):
+                with st.spinner(f"Tailoring {len(unprepped)} IT PDF & Word resumes to their JDs..."):
                     for j in unprepped:
                         prepare_application_package(j, profile)
                     st.rerun()
@@ -828,7 +839,7 @@ elif active_view == "⚡ NEO 1-Tap Queue":
         """
         <div class="neo-box">
           <strong>⚡ NEO 1-Tap Mobile Application Deck</strong><br>
-          <span style="font-size:0.86rem;color:#334155;">Each card below already has a tailored 1-page ATS PDF resume &amp; screening answers ready. On mobile: <b>1. Download Resume → 2. Tap Open &amp; Apply → 3. Mark Submitted</b>.</span>
+          <span style="font-size:0.86rem;color:#334155;">Each card below has a tailored 1-page ATS <b>PDF</b> (for applying) &amp; <b>Word (.docx)</b> (for editing). On mobile: <b>1. Download PDF → 2. Tap Open &amp; Apply → 3. Mark Submitted</b>.</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -880,9 +891,20 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                                 key=f"neo_dl_{app_id}",
                                 width="stretch",
                             )
+                        docx_file = resume_file.with_suffix(".docx")
+                        if docx_file.exists():
+                            with open(docx_file, "rb") as f_doc:
+                                st.download_button(
+                                    "📝 Word (.docx)",
+                                    f_doc,
+                                    file_name=docx_file.name,
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"neo_dl_docx_{app_id}",
+                                    width="stretch",
+                                )
                 with m2:
                     if app_row.get("url"):
-                        st.link_button("🔗 2. Open & Apply", app_row["url"], type="primary", width="stretch")
+                        st.link_button("🔗 2. Open & Apply (PDF)", app_row["url"], type="primary", width="stretch")
                 with m3:
                     if st.button("✔️ 3. Mark Submitted", key=f"neo_sub_{app_id}", width="stretch"):
                         if status == "awaiting_approval":
@@ -997,14 +1019,14 @@ elif active_view == "🔍 Discover & Manual":
                             except Exception as e:
                                 st.error(str(e))
                 with b2:
-                    if st.button("📄 Auto-Tailor PDF & ATS", key=f"prep_{job['id']}", type="primary", width="stretch"):
-                        with st.spinner("Generating tailored PDF resume, ATS score & screening answers..."):
+                    if st.button("📄 Auto-Tailor PDF & Word", key=f"prep_{job['id']}", type="primary", width="stretch"):
+                        with st.spinner("Generating tailored PDF & Word resumes, ATS score & screening answers..."):
                             try:
                                 analysis = st.session_state.get(f"analysis_{job['id']}")
                                 pkg = prepare_application_package(job, profile, analysis=analysis)
                                 ats_val = (pkg.get("ats_report") or {}).get("ats_score", "N/A")
                                 st.success(
-                                    f"Tailored PDF Ready! Application #{pkg['application_id']} (ATS Score: {ats_val}/100). "
+                                    f"Tailored PDF & Word Ready! Application #{pkg['application_id']} (ATS Score: {ats_val}/100). "
                                     "Open '⚡ NEO 1-Tap Queue' to download."
                                 )
                             except Exception as e:
@@ -1017,29 +1039,39 @@ elif active_view == "🔍 Discover & Manual":
                 analysis = st.session_state.get(f"analysis_{job['id']}")
                 if analysis:
                     st.json(analysis)
-                    if st.button("Generate tailored PDF resume + ATS score", key=f"resume_{job['id']}"):
+                    if st.button("Generate tailored PDF & Word resume + ATS score", key=f"resume_{job['id']}"):
                         path, ats = create_tailored_resume_with_ats(profile, analysis, job)
                         resume_p = Path(path)
-                        mime = (
-                            "application/pdf"
-                            if resume_p.suffix.lower() == ".pdf"
-                            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                        st.success(f"Resume created: {resume_p.name} | ATS Score: {ats['ats_score']}/100 ({ats['grade']})")
-                        with open(resume_p, "rb") as f:
-                            st.download_button(
-                                f"⬇️ Download Tailored Resume ({resume_p.suffix.upper().lstrip('.')})",
-                                f,
-                                file_name=resume_p.name,
-                                mime=mime,
-                                key=f"download_{job['id']}",
-                            )
+                        st.success(f"Resumes created: {resume_p.stem}.pdf & .docx | ATS Score: {ats['ats_score']}/100 ({ats['grade']})")
+                        d1, d2 = st.columns(2)
+                        with d1:
+                            with open(resume_p, "rb") as f:
+                                st.download_button(
+                                    "⬇️ Download PDF (For Applying)",
+                                    f,
+                                    file_name=resume_p.name,
+                                    mime="application/pdf",
+                                    key=f"download_pdf_{job['id']}",
+                                    width="stretch",
+                                )
+                        docx_p = resume_p.with_suffix(".docx")
+                        if docx_p.exists():
+                            with d2:
+                                with open(docx_p, "rb") as f_doc:
+                                    st.download_button(
+                                        "📝 Download Word (.docx)",
+                                        f_doc,
+                                        file_name=docx_p.name,
+                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        key=f"download_docx_{job['id']}",
+                                        width="stretch",
+                                    )
 
 # ================= VIEW 4: ALL APPLICATIONS =================
 elif active_view == "📋 All Applications":
     st.subheader("Full Application History & Desktop Autofill")
     st.caption(
-        "Use '⚡ NEO 1-Tap Queue' on mobile, or use desktop Playwright prefill below when running on your laptop."
+        "PDF is used for applying and desktop Playwright autofill. Word (.docx) is also available for quick edits."
     )
 
     status_options = ["All", "awaiting_approval", "approved", "submitted", "rejected"]
@@ -1089,19 +1121,34 @@ elif active_view == "📋 All Applications":
 
                 resume_file = Path(app_row.get("resume_path") or "")
                 if resume_file.exists():
-                    mime = (
-                        "application/pdf"
-                        if resume_file.suffix.lower() == ".pdf"
-                        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-                    with open(resume_file, "rb") as f:
-                        st.download_button(
-                            f"⬇️ Download Tailored Resume ({resume_file.name})",
-                            f,
-                            file_name=resume_file.name,
-                            mime=mime,
-                            key=f"app_dl_{app_id}",
+                    dl1, dl2 = st.columns(2)
+                    with dl1:
+                        mime = (
+                            "application/pdf"
+                            if resume_file.suffix.lower() == ".pdf"
+                            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
+                        with open(resume_file, "rb") as f:
+                            st.download_button(
+                                f"⬇️ Download PDF ({resume_file.name})",
+                                f,
+                                file_name=resume_file.name,
+                                mime=mime,
+                                key=f"app_dl_{app_id}",
+                                width="stretch",
+                            )
+                    docx_file = resume_file.with_suffix(".docx")
+                    if docx_file.exists():
+                        with dl2:
+                            with open(docx_file, "rb") as f_doc:
+                                st.download_button(
+                                    f"📝 Download Word ({docx_file.name})",
+                                    f_doc,
+                                    file_name=docx_file.name,
+                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key=f"app_dl_docx_{app_id}",
+                                    width="stretch",
+                                )
 
                 answers_list = ans_data.get("answers", [])
                 if answers_list:
@@ -1142,7 +1189,7 @@ elif active_view == "📋 All Applications":
                     st.success(f"Approved at {app_row.get('approved_at')}. Ready for submission.")
                     c_auto, c_sub = st.columns(2)
                     with c_auto:
-                        if st.button("🌐 Launch Desktop Autofill (Laptop Only)", key=f"autofill_{app_id}", width="stretch"):
+                        if st.button("🌐 Launch Desktop Autofill (PDF - Laptop Only)", key=f"autofill_{app_id}", width="stretch"):
                             try:
                                 res = launch_prefill_browser(
                                     job_url=app_row.get("url") or "",
