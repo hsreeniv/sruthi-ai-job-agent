@@ -437,49 +437,70 @@ def _summarize_mnc_news_with_gemini(company_name: str, items: list[dict]) -> str
         return f"AI summary unavailable ({exc}). Review the live links below."
 
 
-def _generate_quick_prep(job: dict, profile_data: dict) -> str:
-    """Generates 3 likely technical questions + 1 project talking point for a specific JD."""
+def _generate_quick_prep(job: dict, profile_data: dict) -> dict:
+    """Searches the web for previously asked company/role interview questions and generates Q&A."""
+    company = (job.get("company") or "Tech Company").strip()
+    title = (job.get("title") or "Engineer").strip()
     is_core = "core" in (job.get("track") or "").lower()
-    fallback = (
-        "**Top 3 Likely Questions:**\n"
+
+    # 1. Search web (all-time) for real previously asked interview questions
+    search_q = f"{company} {title} interview questions fresher intern India"
+    web_items, _ = _search_web_raw(search_q, max_results=5, time_filter="")
+
+    # Fallback Q&A if Gemini is unavailable
+    fallback_qa = (
+        f"### 🎯 Likely Q&A for {company} — {title}\n\n"
         + (
-            "1. Explain how hardware interrupts and 7-segment display multiplexing work in Embedded C.\n"
-            "2. Differentiate between UART, SPI, and I2C protocols and their typical use cases.\n"
-            "3. Explain FSM design, setup/hold time, and basic RTL verification flow.\n\n"
-            "**Project Talking Point:** Highlight leading a 6-member team on the Arduino UNO Real-Time Digital Clock and your VLSI Guru training."
+            "**Q1. Explain how hardware interrupts and 7-segment display multiplexing work in Embedded C.**\n"
+            "*Ans:* An interrupt pauses the main loop to run an ISR immediately when a hardware event (like a timer tick) occurs, ensuring accurate timekeeping. Multiplexing turns on one 7-segment digit at a time rapidly (>60 Hz) so all digits appear lit while saving microcontroller GPIO pins.\n\n"
+            "**Q2. What is the difference between UART, SPI, and I2C?**\n"
+            "*Ans:* UART is asynchronous and point-to-point (2 wires: TX/RX). SPI is synchronous, full-duplex, and fastest (4 wires: MOSI, MISO, SCLK, SS). I2C is synchronous, half-duplex, and uses only 2 wires (SDA, SCL) with device addressing to connect multiple peripherals.\n\n"
+            "**Q3. What are setup time and hold time in digital circuits?**\n"
+            "*Ans:* Setup time is the minimum time data must be stable before the active clock edge; hold time is the minimum time data must remain stable after the clock edge to avoid metastability.\n\n"
+            "**Project Talking Point:** Connect your Arduino UNO Real-Time Digital Clock (6-member team) and VLSI Guru training directly to this role."
             if is_core
             else
-            "1. Explain how PCA reduces dimensionality and why you paired Eigenfaces with an MLP classifier.\n"
-            "2. Write a Python/C function to reverse a string or find duplicates in an array and explain its time complexity.\n"
-            "3. How did you tune the distance threshold for imposter detection (ACCEPTED/REJECTED)?\n\n"
-            "**Project Talking Point:** Walk through your iStudio AI Internship Face Recognition pipeline from data preprocessing to Matplotlib visualization."
+            "**Q1. How does PCA work, and why did you use it for Face Recognition?**\n"
+            "*Ans:* PCA finds orthogonal principal components that capture maximum variance in the data. Reducing 10,000-pixel face vectors to k components (2, 5, 10, 20) removes noise and speeds up MLP training without losing key facial features.\n\n"
+            "**Q2. How did you handle imposter detection in your AI project?**\n"
+            "*Ans:* After classification, I computed the Euclidean distance between the test projection and known class embeddings—if the distance exceeded a tuned threshold, the system output REJECTED instead of forcing a false match.\n\n"
+            "**Q3. What is the time complexity of finding duplicates in an array?**\n"
+            "*Ans:* Using a hash set (Python `set`), we can detect duplicates in O(n) time and O(n) space, compared to O(n log n) with sorting or O(n²) with nested loops.\n\n"
+            "**Project Talking Point:** Walk through your iStudio AI Internship Face Recognition pipeline (PCA + MLP + Matplotlib)."
         )
     )
 
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        return fallback
+        return {"qa_markdown": fallback_qa, "sources": web_items}
 
     try:
         from google import genai
 
         client = genai.Client(api_key=api_key)
+        web_context = "\n".join(
+            f"- {it['title']}: {it['snippet']}" for it in web_items[:5]
+        ) or "No direct web snippets found; use standard Indian fresher interview patterns for this company and role."
+
         prompt = (
-            f"Candidate: Final-year B.Tech ECE (2027). Projects: (1) Face Recognition using PCA & MLP in Python, "
-            f"(2) Real-Time Digital Clock on Arduino UNO in Embedded C. Training: VLSI Design & Verification, iStudio AI Intern.\n"
-            f"Target Role: {job.get('title')} at {job.get('company')}\n"
-            f"JD Snippet: {(job.get('jd') or '')[:1000]}\n\n"
-            f"Give a concise 3-minute interview prep card:\n"
-            f"- **Top 3 Likely Technical Questions** (1 line each)\n"
-            f"- **1 Best Project Talking Point** connecting the candidate's real projects to this JD."
+            f"You are an interview coach for a final-year B.Tech ECE student (2027 batch).\n"
+            f"Target Company: {company}\n"
+            f"Target Role: {title}\n"
+            f"JD Snippet: {(job.get('jd') or '')[:900]}\n\n"
+            f"Previously Asked Interview Questions from Web Search:\n{web_context}\n\n"
+            f"Generate a concise, high-impact **Interview Q&A Sheet** with:\n"
+            f"1. **Top 5 Previously Asked / Most Likely Interview Questions** for {company} ({title}), each followed by a **clear 2–3 sentence spoken-style Answer**.\n"
+            f"2. **1 Best Project Talking Point** connecting the candidate's background (PCA+MLP Face Recognition in Python, Arduino UNO Digital Clock in Embedded C, VLSI Design & Verification training) to this role.\n"
+            f"Keep it crisp and mobile-readable using bold **Q1..Q5** and *Ans:* formatting."
         )
         resp = client.models.generate_content(
             model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             contents=prompt,
         )
-        return (resp.text or "").strip() or fallback
+        qa_text = (resp.text or "").strip() or fallback_qa
+        return {"qa_markdown": qa_text, "sources": web_items}
     except Exception:
-        return fallback
+        return {"qa_markdown": fallback_qa, "sources": web_items}
 
 
 def _build_referral_dm(job: dict, profile_data: dict) -> str:
@@ -559,7 +580,7 @@ def _clean_download_name(company: str, track: str, ext: str) -> str:
 
 
 def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
-    """Renders a job card with PPO badges, PDF/Word downloads, Regenerate, Referral DM, and Quick Prep."""
+    """Renders a job card with PPO badges, PDF/Word downloads, Regenerate, Referral DM, and Live Interview Q&A."""
     elig = job.get("eligibility_status", "Review required")
     pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
     score_val = int(job.get("match_score") or 0)
@@ -658,19 +679,24 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
             dismiss_job(job["id"], reason_status="dismissed")
             st.rerun()
 
-    # 1-Tap Referral DM & 3-Minute Quick Prep
+    # 1-Tap Referral DM & Live Web Interview Q&A
     u1, u2 = st.columns(2)
     with u1:
         with st.expander("💬 Copy Referral DM"):
             st.code(_build_referral_dm(job, profile), language=None)
     with u2:
-        with st.expander("🎯 3-Min Quick Prep"):
+        with st.expander("🎯 Interview Q&A (Live Web)"):
             prep_key = f"{job['id']}"
             if prep_key in st.session_state["quick_prep_cache"]:
-                st.markdown(st.session_state["quick_prep_cache"][prep_key])
+                prep_data = st.session_state["quick_prep_cache"][prep_key]
+                st.markdown(prep_data["qa_markdown"])
+                if prep_data.get("sources"):
+                    st.markdown("**🔗 Source Interview Experiences:**")
+                    for s in prep_data["sources"][:3]:
+                        st.markdown(f"- [{s['title'][:55]}]({s['link']})")
             else:
-                if st.button("⚡ Generate Prep Card", key=f"{prefix}_qprep_{job['id']}", width="stretch"):
-                    with st.spinner("Generating 3-minute interview prep..."):
+                if st.button("⚡ Fetch Real Q&A", key=f"{prefix}_qprep_{job['id']}", width="stretch"):
+                    with st.spinner(f"Searching {job.get('company', '')} interview questions & generating answers..."):
                         st.session_state["quick_prep_cache"][prep_key] = _generate_quick_prep(job, profile)
                         st.rerun()
 
@@ -809,7 +835,7 @@ st.markdown(
     <div class="hero-banner">
       <div class="hero-left">
         <h1>🎯 AI Job Agent — NEO Command Center</h1>
-        <p>Core ECE &amp; IT Split View • MNC Drive Radar • Automatic JD-Based PDF &amp; Word Resumes</p>
+        <p>Core ECE &amp; IT Split View • MNC Drive Radar • Live Interview Q&amp;A • Tailored PDF &amp; Word Resumes</p>
       </div>
       <div class="hero-badge">
         <span class="live-dot"></span>LIVE &nbsp;|&nbsp; Last Sync: {last_sync}
