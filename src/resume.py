@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -31,6 +32,10 @@ def _slugify(text: str) -> str:
     return cleaned[:40] or "role"
 
 
+def _esc(text: str) -> str:
+    return escape(str(text or ""))
+
+
 def _extract_jd_keywords(jd_text: str) -> list[str]:
     lower = (jd_text or "").lower()
     found = []
@@ -53,6 +58,32 @@ def _flatten_profile_skills(profile: dict) -> list[str]:
     if isinstance(skills, list):
         return [str(s) for s in skills]
     return []
+
+
+def _extract_bullets(item: dict) -> list[str]:
+    """Extracts bullet points regardless of key name in profile.json."""
+    for key in ("bullets", "highlights", "points", "details", "responsibilities"):
+        val = item.get(key)
+        if isinstance(val, list) and val:
+            return [str(x).strip() for x in val if str(x).strip()]
+    for key in ("description", "summary"):
+        val = item.get(key)
+        if isinstance(val, str) and val.strip():
+            return [val.strip()]
+    return []
+
+
+def _clean_role_target(job: dict) -> str:
+    """Prevents noisy scraped web titles (like conference alerts) from entering the summary."""
+    title = (job.get("title") or "").strip()
+    company = (job.get("company") or "").strip()
+    bad_signals = ("conference", "alert", "blog", "news", "list of", "top 10", "jobs in ")
+    if not title or len(title) > 70 or any(b in title.lower() for b in bad_signals):
+        track = (job.get("track") or "").lower()
+        return "Core Electronics / Embedded & VLSI Engineering" if "core" in track else "Software & Engineering"
+    if company and company.lower() not in title.lower() and len(company) <= 35:
+        return f"{title} at {company}"
+    return title
 
 
 def _compute_ats_report(resume_text: str, jd_text: str) -> dict:
@@ -90,7 +121,6 @@ def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) ->
     jd_kws = set(_extract_jd_keywords(jd_text))
 
     all_skills = _flatten_profile_skills(profile)
-    # Prioritize skills that appear in the JD without fabricating anything
     prioritized = sorted(
         all_skills,
         key=lambda s: (0 if any(k in s.lower() for k in jd_kws) else 1, s.lower()),
@@ -102,26 +132,34 @@ def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) ->
         key=lambda p: -sum(1 for k in jd_kws if k in str(p).lower()),
     )
 
-    role_title = job.get("title") or "Engineering Intern / Fresher"
-    company = job.get("company") or "Target Organization"
+    c = profile.get("contact") if isinstance(profile.get("contact"), dict) else {}
+    contact_parts = [
+        profile.get("location") or c.get("location") or "Bengaluru, Karnataka",
+        profile.get("phone") or c.get("phone") or "",
+        profile.get("email") or c.get("email") or "",
+        profile.get("linkedin") or c.get("linkedin") or "",
+        profile.get("github") or c.get("github") or "",
+    ]
+
+    experience = (
+        profile.get("experience")
+        or profile.get("internships")
+        or profile.get("training")
+        or profile.get("internships_and_training")
+        or []
+    )
+
+    role_target = _clean_role_target(job)
     summary = (
         (analysis or {}).get("tailored_summary")
         or f"Final-year {profile.get('degree', 'B.Tech ECE')} student ({profile.get('batch', '2023-2027')}) "
-           f"targeting {role_title} at {company}. Strong foundation in "
-           f"{', '.join(prioritized[:6]) if prioritized else 'Electronics, Embedded Systems, and Python'}."
+           f"targeting {role_target} roles. Hands-on foundation in "
+           f"{', '.join(prioritized[:7]) if prioritized else 'Embedded C, VLSI/RTL, and Python'}."
     )
 
     return {
         "name": profile.get("name", "SRUTHI M"),
-        "contact": " | ".join(
-            x for x in [
-                profile.get("location", "Bengaluru, Karnataka"),
-                profile.get("phone", ""),
-                profile.get("email", ""),
-                profile.get("linkedin", ""),
-                profile.get("github", ""),
-            ] if x
-        ),
+        "contact": " | ".join(str(x).strip() for x in contact_parts if str(x).strip()),
         "summary": summary,
         "education": {
             "degree": profile.get("degree", "B.Tech — Electronics & Communication Engineering"),
@@ -129,7 +167,7 @@ def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) ->
             "timeline": f"Batch {profile.get('batch', '2023-2027')} | Graduating {profile.get('graduation_month', 'May 2027')} | {profile.get('backlogs', 'No active backlogs')}",
         },
         "skills": prioritized,
-        "experience": profile.get("experience", []) or profile.get("internships", []),
+        "experience": experience,
         "projects": projects_sorted[:4],
         "certifications": profile.get("certifications", []),
     }
@@ -151,47 +189,51 @@ def _write_pdf(sections: dict, pdf_path: Path) -> None:
     body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=9.2, leading=12.5, textColor=colors.HexColor("#1e293b"), spaceAfter=3)
 
     story = [
-        Paragraph(sections["name"], name_style),
-        Paragraph(sections["contact"], contact_style),
+        Paragraph(_esc(sections["name"]), name_style),
+        Paragraph(_esc(sections["contact"]), contact_style),
         HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cbd5e1")),
         Spacer(1, 4),
         Paragraph("PROFESSIONAL SUMMARY", sec_style),
-        Paragraph(sections["summary"], body_style),
+        Paragraph(_esc(sections["summary"]), body_style),
         Paragraph("EDUCATION", sec_style),
-        Paragraph(f"<b>{sections['education']['degree']}</b> — {sections['education']['college']}", body_style),
-        Paragraph(sections["education"]["timeline"], body_style),
+        Paragraph(f"<b>{_esc(sections['education']['degree'])}</b> — {_esc(sections['education']['college'])}", body_style),
+        Paragraph(_esc(sections["education"]["timeline"]), body_style),
     ]
 
     if sections["skills"]:
         story.append(Paragraph("TECHNICAL SKILLS", sec_style))
-        story.append(Paragraph(", ".join(sections["skills"]), body_style))
+        story.append(Paragraph(_esc(", ".join(sections["skills"])), body_style))
 
     if sections["experience"]:
         story.append(Paragraph("INTERNSHIPS &amp; TRAINING", sec_style))
         for exp in sections["experience"]:
             if isinstance(exp, dict):
-                line = f"<b>{exp.get('role', exp.get('title', ''))}</b> — {exp.get('company', exp.get('organization', ''))} ({exp.get('duration', '')})"
-                story.append(Paragraph(line, body_style))
-                if exp.get("description"):
-                    story.append(Paragraph(f"• {exp['description']}", body_style))
+                role = _esc(exp.get("role") or exp.get("title") or "")
+                org = _esc(exp.get("company") or exp.get("organization") or "")
+                dur = _esc(exp.get("duration") or "")
+                dur_part = f" ({dur})" if dur else ""
+                story.append(Paragraph(f"<b>{role}</b> — {org}{dur_part}", body_style))
+                for b in _extract_bullets(exp):
+                    story.append(Paragraph(f"• {_esc(b)}", body_style))
             else:
-                story.append(Paragraph(f"• {exp}", body_style))
+                story.append(Paragraph(f"• {_esc(exp)}", body_style))
 
     if sections["projects"]:
         story.append(Paragraph("PROJECTS", sec_style))
         for proj in sections["projects"]:
             if isinstance(proj, dict):
-                story.append(Paragraph(f"<b>{proj.get('name', proj.get('title', 'Project'))}</b>", body_style))
-                desc = proj.get("description") or proj.get("summary") or ""
-                if desc:
-                    story.append(Paragraph(f"• {desc}", body_style))
+                title = _esc(proj.get("name") or proj.get("title") or "Project")
+                tech = f" ({_esc(', '.join(proj['tech']))})" if isinstance(proj.get("tech"), list) and proj.get("tech") else ""
+                story.append(Paragraph(f"<b>{title}</b>{tech}", body_style))
+                for b in _extract_bullets(proj):
+                    story.append(Paragraph(f"• {_esc(b)}", body_style))
             else:
-                story.append(Paragraph(f"• {proj}", body_style))
+                story.append(Paragraph(f"• {_esc(proj)}", body_style))
 
     if sections["certifications"]:
         story.append(Paragraph("CERTIFICATIONS", sec_style))
         for cert in sections["certifications"]:
-            story.append(Paragraph(f"• {cert}", body_style))
+            story.append(Paragraph(f"• {_esc(cert)}", body_style))
 
     doc.build(story)
 
@@ -213,63 +255,73 @@ def _write_docx(sections: dict, docx_path: Path) -> None:
         r.font.size = Pt(10.5)
         r.font.color.rgb = RGBColor(0x1E, 0x3A, 0x8A)
 
+    def add_body_line(text: str, size: float = 9.5) -> None:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(2)
+        r = p.add_run(text)
+        r.font.size = Pt(size)
+
     p_name = doc.add_paragraph()
     p_name.paragraph_format.space_after = Pt(2)
     r_name = p_name.add_run(sections["name"])
     r_name.bold = True
     r_name.font.size = Pt(16)
 
-    p_contact = doc.add_paragraph(sections["contact"])
-    p_contact.paragraph_format.space_after = Pt(6)
-    for run in p_contact.runs:
-        run.font.size = Pt(8.5)
+    add_body_line(sections["contact"], size=8.5)
 
     add_heading_line("PROFESSIONAL SUMMARY")
-    doc.add_paragraph(sections["summary"]).runs[0].font.size = Pt(9.5)
+    add_body_line(sections["summary"], size=9.5)
 
     add_heading_line("EDUCATION")
     p_ed = doc.add_paragraph()
+    p_ed.paragraph_format.space_after = Pt(1)
     r_ed = p_ed.add_run(f"{sections['education']['degree']} — {sections['education']['college']}")
     r_ed.bold = True
     r_ed.font.size = Pt(9.5)
-    p_ed2 = doc.add_paragraph(sections["education"]["timeline"])
-    p_ed2.runs[0].font.size = Pt(9)
+    add_body_line(sections["education"]["timeline"], size=9.0)
 
     if sections["skills"]:
         add_heading_line("TECHNICAL SKILLS")
-        doc.add_paragraph(", ".join(sections["skills"])).runs[0].font.size = Pt(9.5)
+        add_body_line(", ".join(sections["skills"]), size=9.5)
 
     if sections["experience"]:
         add_heading_line("INTERNSHIPS & TRAINING")
         for exp in sections["experience"]:
             if isinstance(exp, dict):
+                role = exp.get("role") or exp.get("title") or ""
+                org = exp.get("company") or exp.get("organization") or ""
+                dur = exp.get("duration") or ""
+                dur_part = f" ({dur})" if dur else ""
                 p = doc.add_paragraph()
-                r = p.add_run(f"{exp.get('role', exp.get('title', ''))} — {exp.get('company', exp.get('organization', ''))} ({exp.get('duration', '')})")
+                p.paragraph_format.space_after = Pt(1)
+                r = p.add_run(f"{role} — {org}{dur_part}")
                 r.bold = True
                 r.font.size = Pt(9.5)
-                if exp.get("description"):
-                    doc.add_paragraph(f"• {exp['description']}").runs[0].font.size = Pt(9)
+                for b in _extract_bullets(exp):
+                    add_body_line(f"• {b}", size=9.0)
             else:
-                doc.add_paragraph(f"• {exp}").runs[0].font.size = Pt(9)
+                add_body_line(f"• {exp}", size=9.0)
 
     if sections["projects"]:
         add_heading_line("PROJECTS")
         for proj in sections["projects"]:
             if isinstance(proj, dict):
+                title = proj.get("name") or proj.get("title") or "Project"
+                tech = f" ({', '.join(proj['tech'])})" if isinstance(proj.get("tech"), list) and proj.get("tech") else ""
                 p = doc.add_paragraph()
-                r = p.add_run(proj.get("name", proj.get("title", "Project")))
+                p.paragraph_format.space_after = Pt(1)
+                r = p.add_run(f"{title}{tech}")
                 r.bold = True
                 r.font.size = Pt(9.5)
-                desc = proj.get("description") or proj.get("summary") or ""
-                if desc:
-                    doc.add_paragraph(f"• {desc}").runs[0].font.size = Pt(9)
+                for b in _extract_bullets(proj):
+                    add_body_line(f"• {b}", size=9.0)
             else:
-                doc.add_paragraph(f"• {proj}").runs[0].font.size = Pt(9)
+                add_body_line(f"• {proj}", size=9.0)
 
     if sections["certifications"]:
         add_heading_line("CERTIFICATIONS")
         for cert in sections["certifications"]:
-            doc.add_paragraph(f"• {cert}").runs[0].font.size = Pt(9)
+            add_body_line(f"• {cert}", size=9.0)
 
     doc.save(str(docx_path))
 
@@ -300,5 +352,4 @@ def create_tailored_resume_with_ats(profile: dict, analysis: dict | None, job: d
     ats_report["pdf_path"] = str(pdf_path)
     ats_report["docx_path"] = str(docx_path)
 
-    # Return PDF as the primary path used for applying & autofill
     return str(pdf_path), ats_report
