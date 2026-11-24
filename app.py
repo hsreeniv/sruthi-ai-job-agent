@@ -513,19 +513,19 @@ awaiting_count = sum(1 for a in apps if a.get("status") in ("awaiting_approval",
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
     if st.button(f"Active Unapplied\n\n**{len(active_jobs)}**", key="kpi_all", width="stretch"):
-        st.session_state["active_view"] = "📊 Live Dashboard"
+        st.session_state["active_view"] = "🔍 Discover & Manual"
         st.session_state["quick_mode"] = "All"
         st.session_state["kpi_elig_override"] = "All"
         st.rerun()
 with k2:
     if st.button(f"Likely Eligible\n\n**{likely_count}**", key="kpi_elig", width="stretch"):
-        st.session_state["active_view"] = "📊 Live Dashboard"
+        st.session_state["active_view"] = "🔍 Discover & Manual"
         st.session_state["quick_mode"] = "All"
         st.session_state["kpi_elig_override"] = "Likely eligible"
         st.rerun()
 with k3:
     if st.button(f"Bengaluru Priority\n\n**{blr_count}**", key="kpi_blr", width="stretch"):
-        st.session_state["active_view"] = "📊 Live Dashboard"
+        st.session_state["active_view"] = "🔍 Discover & Manual"
         st.session_state["quick_mode"] = "🔥 Bengaluru Only"
         st.session_state["kpi_elig_override"] = "All"
         st.rerun()
@@ -837,7 +837,10 @@ elif active_view == "⚡ NEO 1-Tap Queue":
 
 # ================= VIEW 3: DISCOVER & MANUAL =================
 elif active_view == "🔍 Discover & Manual":
-    filtered_feed = _apply_filters(active_jobs)
+    filtered_feed = _apply_filters(
+        active_jobs,
+        quick_mode=st.session_state.get("quick_mode", "All"),
+    )
     st.subheader("Active Job Feed & Manual Entry")
     st.caption("Already-applied and hidden jobs are permanently excluded from this feed and future daily runs.")
 
