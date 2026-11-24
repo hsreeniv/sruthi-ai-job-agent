@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -370,6 +371,19 @@ def _ingest_google_batch(profile_data: dict) -> dict:
     return {"fetched": total_fetched, "inserted": total_inserted}
 
 
+def _clean_download_name(company: str, track: str, ext: str) -> str:
+    """Returns a clean, recruiter-friendly filename for PDF/Word downloads."""
+    comp = (company or "").strip()
+    bad_words = ("conference", "alert", "jobs in", "web career", "google", "search", "opening")
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", comp).strip("_")
+
+    if not cleaned or len(cleaned) > 22 or any(b in comp.lower() for b in bad_words):
+        suffix = "Core_ECE" if "core" in (track or "").lower() else "IT_Software"
+        return f"Sruthi_M_{suffix}_Resume.{ext}"
+
+    return f"Sruthi_M_{cleaned}_Resume.{ext}"
+
+
 def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
     """Renders a job card with automatic JD-based PDF (for applying) + Word (.docx) downloads and Regenerate."""
     elig = job.get("eligibility_status", "Review required")
@@ -417,16 +431,18 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
     b1, b2, b3 = st.columns([1.4, 1.0, 0.8])
     with b1:
         if resume_file:
+            is_pdf = resume_file.suffix.lower() == ".pdf"
             mime = (
                 "application/pdf"
-                if resume_file.suffix.lower() == ".pdf"
+                if is_pdf
                 else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
+            dl_ext = "pdf" if is_pdf else "docx"
             with open(resume_file, "rb") as f:
                 st.download_button(
                     "⬇️ Tailored PDF",
                     f,
-                    file_name=resume_file.name,
+                    file_name=_clean_download_name(job.get("company", ""), job.get("track", ""), dl_ext),
                     mime=mime,
                     key=f"{prefix}_dl_{job['id']}",
                     type="primary",
@@ -438,7 +454,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
                     st.download_button(
                         "📝 Word (.docx)",
                         f_doc,
-                        file_name=docx_file.name,
+                        file_name=_clean_download_name(job.get("company", ""), job.get("track", ""), "docx"),
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         key=f"{prefix}_dl_docx_{job['id']}",
                         width="stretch",
@@ -872,6 +888,8 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                 ans_data = {"answers": []}
             ats_rep = ans_data.get("ats_report") or {}
             ats_score = ats_rep.get("ats_score", "N/A")
+            matched_job = jobs_by_id.get(app_row.get("job_id"))
+            row_track = app_row.get("track") or (matched_job.get("track", "") if matched_job else "")
 
             with st.container(border=True):
                 c_info, c_badges = st.columns([3, 1.2])
@@ -891,16 +909,18 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                 m1, m2, m3, m4 = st.columns([1.3, 1.2, 1.2, 0.9])
                 with m1:
                     if resume_file.exists():
+                        is_pdf = resume_file.suffix.lower() == ".pdf"
                         mime = (
                             "application/pdf"
-                            if resume_file.suffix.lower() == ".pdf"
+                            if is_pdf
                             else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
+                        dl_ext = "pdf" if is_pdf else "docx"
                         with open(resume_file, "rb") as f:
                             st.download_button(
                                 "⬇️ 1. Tailored PDF",
                                 f,
-                                file_name=resume_file.name,
+                                file_name=_clean_download_name(app_row.get("company", ""), row_track, dl_ext),
                                 mime=mime,
                                 key=f"neo_dl_{app_id}",
                                 width="stretch",
@@ -911,12 +931,11 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                                 st.download_button(
                                     "📝 Word (.docx)",
                                     f_doc,
-                                    file_name=docx_file.name,
+                                    file_name=_clean_download_name(app_row.get("company", ""), row_track, "docx"),
                                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                     key=f"neo_dl_docx_{app_id}",
                                     width="stretch",
                                 )
-                    matched_job = jobs_by_id.get(app_row.get("job_id"))
                     if matched_job and st.button("🔄 Regenerate", key=f"neo_regen_{app_id}", width="stretch"):
                         with st.spinner("Regenerating full 1-page PDF & Word resume..."):
                             reject_application(app_id)
@@ -1062,14 +1081,14 @@ elif active_view == "🔍 Discover & Manual":
                     if st.button("Generate tailored PDF & Word resume + ATS score", key=f"resume_{job['id']}"):
                         path, ats = create_tailored_resume_with_ats(profile, analysis, job)
                         resume_p = Path(path)
-                        st.success(f"Resumes created: {resume_p.stem}.pdf & .docx | ATS Score: {ats['ats_score']}/100 ({ats['grade']})")
+                        st.success(f"Resumes created | ATS Score: {ats['ats_score']}/100 ({ats['grade']})")
                         d1, d2 = st.columns(2)
                         with d1:
                             with open(resume_p, "rb") as f:
                                 st.download_button(
                                     "⬇️ Download PDF (For Applying)",
                                     f,
-                                    file_name=resume_p.name,
+                                    file_name=_clean_download_name(job.get("company", ""), job.get("track", ""), "pdf"),
                                     mime="application/pdf",
                                     key=f"download_pdf_{job['id']}",
                                     width="stretch",
@@ -1081,7 +1100,7 @@ elif active_view == "🔍 Discover & Manual":
                                     st.download_button(
                                         "📝 Download Word (.docx)",
                                         f_doc,
-                                        file_name=docx_p.name,
+                                        file_name=_clean_download_name(job.get("company", ""), job.get("track", ""), "docx"),
                                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                         key=f"download_docx_{job['id']}",
                                         width="stretch",
@@ -1111,6 +1130,8 @@ elif active_view == "📋 All Applications":
         for app_row in filtered_apps:
             app_id = app_row["id"]
             status = app_row.get("status", "awaiting_approval")
+            matched_job = jobs_by_id.get(app_row.get("job_id"))
+            row_track = app_row.get("track") or (matched_job.get("track", "") if matched_job else "")
             header = (
                 f"#{app_id} | {app_row['company']} — {app_row['title']} "
                 f"[{status.upper()} | Match: {app_row.get('match_score')}%]"
@@ -1143,16 +1164,19 @@ elif active_view == "📋 All Applications":
                 if resume_file.exists():
                     dl1, dl2 = st.columns(2)
                     with dl1:
+                        is_pdf = resume_file.suffix.lower() == ".pdf"
                         mime = (
                             "application/pdf"
-                            if resume_file.suffix.lower() == ".pdf"
+                            if is_pdf
                             else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
+                        dl_ext = "pdf" if is_pdf else "docx"
+                        clean_pdf_name = _clean_download_name(app_row.get("company", ""), row_track, dl_ext)
                         with open(resume_file, "rb") as f:
                             st.download_button(
-                                f"⬇️ Download PDF ({resume_file.name})",
+                                f"⬇️ Download PDF ({clean_pdf_name})",
                                 f,
-                                file_name=resume_file.name,
+                                file_name=clean_pdf_name,
                                 mime=mime,
                                 key=f"app_dl_{app_id}",
                                 width="stretch",
@@ -1160,11 +1184,12 @@ elif active_view == "📋 All Applications":
                     docx_file = resume_file.with_suffix(".docx")
                     if docx_file.exists():
                         with dl2:
+                            clean_docx_name = _clean_download_name(app_row.get("company", ""), row_track, "docx")
                             with open(docx_file, "rb") as f_doc:
                                 st.download_button(
-                                    f"📝 Download Word ({docx_file.name})",
+                                    f"📝 Download Word ({clean_docx_name})",
                                     f_doc,
-                                    file_name=docx_file.name,
+                                    file_name=clean_docx_name,
                                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                     key=f"app_dl_docx_{app_id}",
                                     width="stretch",
