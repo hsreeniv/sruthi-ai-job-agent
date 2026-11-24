@@ -248,6 +248,8 @@ if "kpi_elig_override" not in st.session_state:
     st.session_state["kpi_elig_override"] = "All"
 if "app_status_override" not in st.session_state:
     st.session_state["app_status_override"] = "All"
+if "mnc_news_cache" not in st.session_state:
+    st.session_state["mnc_news_cache"] = {}
 
 
 def _fetch_page_jd(url: str, fallback_snippet: str) -> str:
@@ -266,18 +268,21 @@ def _fetch_page_jd(url: str, fallback_snippet: str) -> str:
         return fallback_snippet
 
 
-def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int = 8) -> dict:
-    """Fetches live job links + JDs directly inside Streamlit (no Google new tab)."""
+def _search_web_raw(query: str, max_results: int = 6, time_filter: str = "d") -> tuple[list[dict], str]:
+    """Searches Serper (if configured) or DuckDuckGo HTML and returns (results, source_label)."""
     api_key = os.getenv("SERPER_API_KEY", "").strip()
-    raw_results = []
-    source_label = "Google Search (24h)"
+    raw_results: list[dict] = []
+    source_label = "Google Search"
 
     if api_key:
         try:
+            payload = {"q": query, "gl": "in", "hl": "en", "num": max_results}
+            if time_filter:
+                payload["tbs"] = f"qdr:{time_filter}"
             resp = requests.post(
                 "https://google.serper.dev/search",
                 headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
-                json={"q": query, "gl": "in", "hl": "en", "tbs": "qdr:d", "num": max_results},
+                json=payload,
                 timeout=15,
             )
             if resp.status_code == 200:
@@ -296,9 +301,12 @@ def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int =
         source_label = "Live Web Search"
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            data = {"q": query}
+            if time_filter in ("d", "w", "m"):
+                data["df"] = time_filter
             resp = requests.post(
                 "https://html.duckduckgo.com/html/",
-                data={"q": query, "df": "d"},
+                data=data,
                 headers=headers,
                 timeout=12,
             )
@@ -320,6 +328,15 @@ def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int =
                 )
         except Exception:
             pass
+
+    return raw_results, source_label
+
+
+def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int = 8) -> dict:
+    """Fetches live job links + JDs directly inside Streamlit (no Google new tab)."""
+    raw_results, source_label = _search_web_raw(query, max_results=max_results, time_filter="d")
+    if source_label == "Google Search":
+        source_label = "Google Search (24h)"
 
     inserted = 0
     for item in raw_results:
@@ -367,6 +384,39 @@ def _ingest_google_batch(profile_data: dict) -> dict:
         total_fetched += r["fetched"]
         total_inserted += r["inserted"]
     return {"fetched": total_fetched, "inserted": total_inserted}
+
+
+def _summarize_mnc_news_with_gemini(company_name: str, items: list[dict]) -> str:
+    """Uses Gemini to give a 3-line official vs. rumor check on 2027 batch MNC hiring news."""
+    if not items:
+        return "No recent 2027 batch drive news found in the last 30 days. Check the official portal link above."
+
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return "Live news links fetched below. Add GEMINI_API_KEY in Secrets to enable AI Official vs. Rumor summaries."
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+        snippets = "\n".join(
+            f"- {it['title']}: {it['snippet']} ({it['link']})" for it in items[:6]
+        )
+        prompt = (
+            f"You are a career advisor for a final-year B.Tech ECE student graduating in May 2027.\n"
+            f"Based ONLY on these search results for {company_name} 2027 batch hiring in India, write exactly 3 short bullet points:\n"
+            f"1. **Drive Status:** Is official 2027 batch registration open right now, expected soon, or not announced?\n"
+            f"2. **Roles / Eligibility:** Any mentioned roles (e.g., NQT, System Engineer, GET) and whether B.Tech ECE 2027 is eligible.\n"
+            f"3. **Watch Out / Action:** Note if any links look like paid tests (like paid TCS iON NQT) or unofficial blogs, and what Sruthi should do.\n\n"
+            f"Search Results:\n{snippets}"
+        )
+        resp = client.models.generate_content(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
+        )
+        return (resp.text or "").strip() or "Summary unavailable; review the live links below."
+    except Exception as exc:
+        return f"AI summary unavailable ({exc}). Review the live links below."
 
 
 def _clean_download_name(company: str, track: str, ext: str) -> str:
@@ -614,7 +664,7 @@ st.markdown(
     <div class="hero-banner">
       <div class="hero-left">
         <h1>🎯 Sruthi AI Job Agent — NEO Command Center</h1>
-        <p>Core ECE &amp; IT Split View • In-App 24h Web Radar • Automatic JD-Based PDF &amp; Word Resumes</p>
+        <p>Core ECE &amp; IT Split View • MNC Drive Radar • Automatic JD-Based PDF &amp; Word Resumes</p>
       </div>
       <div class="hero-badge">
         <span class="live-dot"></span>LIVE &nbsp;|&nbsp; Last Sync: {last_sync}
@@ -690,6 +740,7 @@ st.write("")
 # Navigation bar
 views = [
     "📊 Live Dashboard",
+    "📢 MNC Drive Radar",
     "⚡ NEO 1-Tap Queue",
     "🔍 Discover & Manual",
     "📋 All Applications",
@@ -861,7 +912,88 @@ if active_view == "📊 Live Dashboard":
             },
         )
 
-# ================= VIEW 2: NEO 1-TAP MOBILE QUEUE =================
+# ================= VIEW 2: MNC DRIVE RADAR (TCS, INFOSYS, WIPRO, ETC.) =================
+elif active_view == "📢 MNC Drive Radar":
+    st.markdown(
+        """
+        <div class="radar-box">
+          <strong>📢 MNC 2027 Batch Hiring News &amp; Off-Campus Drive Radar</strong><br>
+          <span style="font-size:0.85rem;color:#475569;">Track official 2027 batch off-campus drives for TCS, Infosys, Wipro, Cognizant, Accenture, Capgemini &amp; HCL. Tap any MNC below to scan live news + get an AI Official vs. Rumor check.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("#### 🔗 Official Registration Portals (1-Tap)")
+    portals = [
+        ("TCS NextStep", "https://nextstep.tcs.com/campus/#/"),
+        ("Infosys Careers", "https://www.infosys.com/careers/graduates.html"),
+        ("Wipro Careers", "https://careers.wipro.com/campus"),
+        ("Cognizant / Superset", "https://app.joinsuperset.com/"),
+        ("Accenture India", "https://www.accenture.com/in-en/careers"),
+        ("Capgemini India", "https://www.capgemini.com/in-en/careers/join-capgemini/"),
+    ]
+    p_cols = st.columns(len(portals))
+    for idx, (p_label, p_url) in enumerate(portals):
+        with p_cols[idx]:
+            st.link_button(f"🌐 {p_label}", p_url, width="stretch")
+
+    st.divider()
+    st.markdown("#### 🔎 Live 2027 Batch News & Drive Scanner")
+
+    mnc_targets = {
+        "TCS": "TCS NQT 2027 batch off campus hiring drive India official notification",
+        "Infosys": "Infosys 2027 batch off campus hiring Specialist Programmer System Engineer India",
+        "Wipro": "Wipro NLTH Elite 2027 batch off campus hiring drive India",
+        "Cognizant": "Cognizant GenC 2027 batch off campus hiring drive Superset India",
+        "Accenture": "Accenture 2027 batch off campus hiring ASE PADA India",
+        "Capgemini": "Capgemini Exceller 2027 batch off campus hiring drive India",
+        "HCLTech": "HCLTech 2027 batch fresher off campus hiring GET India",
+    }
+
+    m_cols = st.columns(len(mnc_targets))
+    for idx, (mnc_name, mnc_q) in enumerate(mnc_targets.items()):
+        with m_cols[idx]:
+            if st.button(f"🔍 {mnc_name}", key=f"mnc_scan_{mnc_name}", width="stretch"):
+                with st.spinner(f"Scanning live 2027 hiring news for {mnc_name}..."):
+                    items, src = _search_web_raw(mnc_q, max_results=6, time_filter="m")
+                    summary = _summarize_mnc_news_with_gemini(mnc_name, items)
+                    st.session_state["mnc_news_cache"][mnc_name] = {
+                        "items": items,
+                        "summary": summary,
+                        "source": src,
+                        "checked_at": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+                    }
+                    st.rerun()
+
+    if st.button("🚀 Scan TCS + Infosys + Wipro + Cognizant Now", type="primary", width="stretch"):
+        for mnc_name in ("TCS", "Infosys", "Wipro", "Cognizant"):
+            with st.spinner(f"Scanning {mnc_name} 2027 batch news..."):
+                items, src = _search_web_raw(mnc_targets[mnc_name], max_results=5, time_filter="m")
+                summary = _summarize_mnc_news_with_gemini(mnc_name, items)
+                st.session_state["mnc_news_cache"][mnc_name] = {
+                    "items": items,
+                    "summary": summary,
+                    "source": src,
+                    "checked_at": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+                }
+        st.rerun()
+
+    cache = st.session_state.get("mnc_news_cache") or {}
+    if not cache:
+        st.info("Tap any MNC button above (or click 'Scan TCS + Infosys + Wipro + Cognizant Now') to check live 2027 off-campus drive status.")
+    else:
+        for mnc_name, data in cache.items():
+            with st.container(border=True):
+                st.markdown(f"### 🏢 {mnc_name} — 2027 Batch Status")
+                st.caption(f"Last checked: {data['checked_at']} • Source: {data['source']}")
+                st.markdown(data["summary"])
+                if data["items"]:
+                    with st.expander(f"📰 View {len(data['items'])} Live News & Notification Links"):
+                        for it in data["items"]:
+                            st.markdown(f"- **[{it['title']}]({it['link']})**  \n  {it['snippet']}")
+
+# ================= VIEW 3: NEO 1-TAP MOBILE QUEUE =================
 elif active_view == "⚡ NEO 1-Tap Queue":
     st.markdown(
         """
@@ -960,7 +1092,7 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                             st.markdown(f"**Q{idx + 1}: {item.get('question', '')}**")
                             st.code(item.get("draft_answer", ""), language=None)
 
-# ================= VIEW 3: DISCOVER & MANUAL =================
+# ================= VIEW 4: DISCOVER & MANUAL =================
 elif active_view == "🔍 Discover & Manual":
     filtered_feed = _apply_filters(
         active_jobs,
@@ -1104,7 +1236,7 @@ elif active_view == "🔍 Discover & Manual":
                                         width="stretch",
                                     )
 
-# ================= VIEW 4: ALL APPLICATIONS =================
+# ================= VIEW 5: ALL APPLICATIONS =================
 elif active_view == "📋 All Applications":
     st.subheader("Full Application History & Mobile Apply")
     st.caption(
@@ -1250,7 +1382,7 @@ elif active_view == "📋 All Applications":
                 elif status == "rejected":
                     st.info("Application was rejected.")
 
-# ================= VIEW 5: COMPANY DIRECTORY =================
+# ================= VIEW 6: COMPANY DIRECTORY =================
 elif active_view == "🏢 Company Directory":
     st.subheader("Employer Source Directory")
     if st.button("Sync directory from config/boards.json"):
@@ -1274,7 +1406,7 @@ elif active_view == "🏢 Company Directory":
     ]
     st.dataframe([{k: d.get(k) for k in dir_cols} for d in directory], width="stretch", hide_index=True)
 
-# ================= VIEW 6: PROFILE =================
+# ================= VIEW 7: PROFILE =================
 elif active_view == "👤 Profile":
     st.subheader("Verified Candidate Profile")
     st.caption("Edit `data/profile.json` to maintain the verified master profile. No unverified facts are ever fabricated.")
