@@ -148,18 +148,6 @@ st.markdown(
         margin-bottom: 1rem;
     }
 
-    /* KPI Metric Cards */
-    div[data-testid="stMetric"] {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-top: 4px solid #2563eb;
-        border-radius: 12px;
-        padding: 14px 16px;
-        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
-    }
-    div[data-testid="stMetricLabel"] { font-size: 0.82rem; font-weight: 600; color: #64748b; }
-    div[data-testid="stMetricValue"] { font-size: 1.95rem; font-weight: 800; color: #0f172a; }
-
     /* Spotlight Cards */
     .spotlight-card {
         background: #ffffff;
@@ -223,6 +211,16 @@ st.markdown(
 )
 
 profile = load_profile()
+
+# Session state for clickable KPI navigation & filters
+if "active_view" not in st.session_state:
+    st.session_state["active_view"] = "📊 Live Dashboard"
+if "quick_mode" not in st.session_state:
+    st.session_state["quick_mode"] = "All"
+if "kpi_elig_override" not in st.session_state:
+    st.session_state["kpi_elig_override"] = "All"
+if "app_status_override" not in st.session_state:
+    st.session_state["app_status_override"] = "All"
 
 
 def _fetch_page_jd(url: str, fallback_snippet: str) -> str:
@@ -414,8 +412,15 @@ def _apply_filters(job_list: list[dict], quick_mode: str = "All") -> list[dict]:
         ]
     if track_filter != "All":
         out = [j for j in out if j.get("track") == track_filter]
-    if elig_filter != "All":
-        out = [j for j in out if j.get("eligibility_status") == elig_filter]
+
+    effective_elig = (
+        st.session_state.get("kpi_elig_override", "All")
+        if elig_filter == "All"
+        else elig_filter
+    )
+    if effective_elig != "All":
+        out = [j for j in out if j.get("eligibility_status") == effective_elig]
+
     if bengaluru_only or quick_mode == "🔥 Bengaluru Only":
         out = [
             j
@@ -423,7 +428,14 @@ def _apply_filters(job_list: list[dict], quick_mode: str = "All") -> list[dict]:
             if "bengaluru" in (j.get("location") or "").lower()
             or "bangalore" in (j.get("location") or "").lower()
         ]
-    if quick_mode == "⚡ Core ECE":
+    if quick_mode == "🔎 Google / Web":
+        out = [
+            j
+            for j in out
+            if "google" in (j.get("source") or "").lower()
+            or "web" in (j.get("source") or "").lower()
+        ]
+    elif quick_mode == "⚡ Core ECE":
         out = [j for j in out if j.get("track") == "Core Engineering"]
     elif quick_mode == "💻 IT / Software":
         out = [j for j in out if j.get("track") == "IT"]
@@ -486,7 +498,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ================= TOP KPI STRIP =================
+# ================= CLICKABLE TOP KPI STRIP =================
 likely_count = sum(1 for j in active_jobs if j.get("eligibility_status") == "Likely eligible")
 blr_count = sum(
     1
@@ -497,28 +509,54 @@ blr_count = sum(
 awaiting_count = sum(1 for a in apps if a.get("status") in ("awaiting_approval", "approved"))
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Active Unapplied", len(active_jobs))
-k2.metric("Likely Eligible", likely_count)
-k3.metric("Bengaluru Priority", blr_count)
-k4.metric("NEO Ready Queue", awaiting_count)
-k5.metric("Total Submitted", submitted_total)
+with k1:
+    if st.button(f"Active Unapplied\n\n**{len(active_jobs)}**", key="kpi_all", width="stretch"):
+        st.session_state["active_view"] = "📊 Live Dashboard"
+        st.session_state["quick_mode"] = "All"
+        st.session_state["kpi_elig_override"] = "All"
+        st.rerun()
+with k2:
+    if st.button(f"Likely Eligible\n\n**{likely_count}**", key="kpi_elig", width="stretch"):
+        st.session_state["active_view"] = "📊 Live Dashboard"
+        st.session_state["quick_mode"] = "All"
+        st.session_state["kpi_elig_override"] = "Likely eligible"
+        st.rerun()
+with k3:
+    if st.button(f"Bengaluru Priority\n\n**{blr_count}**", key="kpi_blr", width="stretch"):
+        st.session_state["active_view"] = "📊 Live Dashboard"
+        st.session_state["quick_mode"] = "🔥 Bengaluru Only"
+        st.session_state["kpi_elig_override"] = "All"
+        st.rerun()
+with k4:
+    if st.button(f"NEO Ready Queue\n\n**{awaiting_count}**", key="kpi_neo", width="stretch"):
+        st.session_state["active_view"] = "⚡ NEO 1-Tap Queue"
+        st.rerun()
+with k5:
+    if st.button(f"Total Submitted\n\n**{submitted_total}**", key="kpi_sub", width="stretch"):
+        st.session_state["active_view"] = "📋 All Applications"
+        st.session_state["app_status_override"] = "submitted"
+        st.rerun()
 
 st.write("")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    [
-        "📊 Live Dashboard",
-        "⚡ NEO 1-Tap Queue",
-        "🔍 Discover & Manual",
-        "📋 All Applications",
-        "🏢 Company Directory",
-        "👤 Profile",
-    ]
-)
+# Navigation bar (synced with clickable KPIs)
+views = [
+    "📊 Live Dashboard",
+    "⚡ NEO 1-Tap Queue",
+    "🔍 Discover & Manual",
+    "📋 All Applications",
+    "🏢 Company Directory",
+    "👤 Profile",
+]
+active_view = st.segmented_control(
+    "Navigation",
+    views,
+    key="active_view",
+    label_visibility="collapsed",
+) or "📊 Live Dashboard"
 
-# ================= TAB 1: LIVE DASHBOARD =================
-with tab1:
-    # In-App Live 24h Search Radar (Fetches links & JDs right inside the app!)
+# ================= VIEW 1: LIVE DASHBOARD =================
+if active_view == "📊 Live Dashboard":
     st.markdown(
         """
         <div class="radar-box">
@@ -541,6 +579,8 @@ with tab1:
             if st.button(label, key=f"inapp_g_{idx}", width="stretch"):
                 with st.spinner(f"Fetching live links & JDs for '{q_str}'..."):
                     res = _search_and_ingest_in_app(q_str, profile)
+                    st.session_state["quick_mode"] = "🔎 Google / Web"
+                    st.session_state["kpi_elig_override"] = "All"
                     st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added to your feed!).")
                     st.rerun()
 
@@ -557,18 +597,20 @@ with tab1:
             q_run = custom_google_q.strip() or "ece freshers jobs in bangalore 2027 opening"
             with st.spinner(f"Fetching live links & JDs for '{q_run}'..."):
                 res = _search_and_ingest_in_app(q_run, profile)
+                st.session_state["quick_mode"] = "🔎 Google / Web"
+                st.session_state["kpi_elig_override"] = "All"
                 st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added to your feed!).")
                 st.rerun()
 
     st.divider()
 
     # Quick-filter bar + NEO Auto-Prepare Action
-    qf_col, neo_btn_col = st.columns([3.5, 1.5])
+    qf_col, neo_btn_col = st.columns([3.7, 1.3])
     with qf_col:
         quick_mode = st.segmented_control(
             "Quick Focus",
-            ["All", "🔥 Bengaluru Only", "⚡ Core ECE", "💻 IT / Software", "⭐ Score 70+"],
-            default="All",
+            ["All", "🔎 Google / Web", "🔥 Bengaluru Only", "⚡ Core ECE", "💻 IT / Software", "⭐ Score 70+"],
+            key="quick_mode",
             label_visibility="collapsed",
         ) or "All"
     with neo_btn_col:
@@ -582,14 +624,19 @@ with tab1:
                 with st.spinner(f"NEO AI is tailoring {len(unprepped)} 1-page ATS PDF resumes..."):
                     for j in unprepped:
                         prepare_application_package(j, profile)
-                    st.success(f"Prepared {len(unprepped)} packages! Open the '⚡ NEO 1-Tap Queue' tab.")
+                    st.session_state["active_view"] = "⚡ NEO 1-Tap Queue"
                     st.rerun()
 
     filtered_jobs = _apply_filters(active_jobs, quick_mode=quick_mode)
 
     # 1. Spotlight: Top 3 Priority Matches
+    active_elig_badge = (
+        f" • Filtered: {st.session_state['kpi_elig_override']}"
+        if st.session_state.get("kpi_elig_override", "All") != "All"
+        else ""
+    )
     st.markdown(
-        f'<div class="panel-header">🔥 Top Priority Matches to Apply Right Now ({len(filtered_jobs)} ready)</div>',
+        f'<div class="panel-header">🔥 Top Priority Matches to Apply Right Now ({len(filtered_jobs)} ready{active_elig_badge})</div>',
         unsafe_allow_html=True,
     )
     if filtered_jobs:
@@ -641,7 +688,7 @@ with tab1:
                         dismiss_job(job["id"], reason_status="dismissed")
                         st.rerun()
     else:
-        st.info("No active jobs match this quick filter. Switch to 'All' or run a fresh 24h discovery.")
+        st.info("No active jobs match this filter. Click 'Active Unapplied' above or run a fresh search.")
 
     st.divider()
 
@@ -707,8 +754,8 @@ with tab1:
             },
         )
 
-# ================= TAB 2: NEO 1-TAP MOBILE QUEUE =================
-with tab2:
+# ================= VIEW 2: NEO 1-TAP MOBILE QUEUE =================
+elif active_view == "⚡ NEO 1-Tap Queue":
     st.markdown(
         """
         <div class="neo-box">
@@ -786,8 +833,8 @@ with tab2:
                             st.markdown(f"**Q{idx + 1}: {item.get('question', '')}**")
                             st.code(item.get("draft_answer", ""), language=None)
 
-# ================= TAB 3: DISCOVER & MANUAL =================
-with tab3:
+# ================= VIEW 3: DISCOVER & MANUAL =================
+elif active_view == "🔍 Discover & Manual":
     filtered_feed = _apply_filters(active_jobs)
     st.subheader("Active Job Feed & Manual Entry")
     st.caption("Already-applied and hidden jobs are permanently excluded from this feed and future daily runs.")
@@ -917,17 +964,18 @@ with tab3:
                                 key=f"download_{job['id']}",
                             )
 
-# ================= TAB 4: ALL APPLICATIONS =================
-with tab4:
+# ================= VIEW 4: ALL APPLICATIONS =================
+elif active_view == "📋 All Applications":
     st.subheader("Full Application History & Desktop Autofill")
     st.caption(
         "Use '⚡ NEO 1-Tap Queue' on mobile, or use desktop Playwright prefill below when running on your laptop."
     )
 
-    status_filter = st.selectbox(
-        "Filter by status",
-        ["All", "awaiting_approval", "approved", "submitted", "rejected"],
-    )
+    status_options = ["All", "awaiting_approval", "approved", "submitted", "rejected"]
+    default_idx = status_options.index(st.session_state.get("app_status_override", "All"))
+    status_filter = st.selectbox("Filter by status", status_options, index=default_idx)
+    st.session_state["app_status_override"] = status_filter
+
     filtered_apps = (
         apps_detailed
         if status_filter == "All"
@@ -1050,8 +1098,8 @@ with tab4:
                 elif status == "rejected":
                     st.info("Application was rejected.")
 
-# ================= TAB 5: COMPANY DIRECTORY =================
-with tab5:
+# ================= VIEW 5: COMPANY DIRECTORY =================
+elif active_view == "🏢 Company Directory":
     st.subheader("Employer Source Directory")
     if st.button("Sync directory from config/boards.json"):
         count = sync_company_directory(load_board_config())
@@ -1074,8 +1122,8 @@ with tab5:
     ]
     st.dataframe([{k: d.get(k) for k in dir_cols} for d in directory], width="stretch", hide_index=True)
 
-# ================= TAB 6: PROFILE =================
-with tab6:
+# ================= VIEW 6: PROFILE =================
+elif active_view == "👤 Profile":
     st.subheader("Verified Candidate Profile")
     st.caption("Edit `data/profile.json` to maintain the verified master profile. No unverified facts are ever fabricated.")
     st.json(profile)
