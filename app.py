@@ -3,7 +3,6 @@
 import json
 import os
 import re
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -22,7 +21,6 @@ from src.applications import (
     reject_application,
     update_application_answers,
 )
-from src.autofill import launch_prefill_browser
 from src.db import (
     dismiss_job,
     init_db,
@@ -1108,9 +1106,9 @@ elif active_view == "🔍 Discover & Manual":
 
 # ================= VIEW 4: ALL APPLICATIONS =================
 elif active_view == "📋 All Applications":
-    st.subheader("Full Application History & Desktop Autofill")
+    st.subheader("Full Application History & Mobile Apply")
     st.caption(
-        "PDF is used for applying and desktop Playwright autofill. Word (.docx) is also available for quick edits."
+        "Download your tailored PDF, open the job portal to apply, then click 'Mark as Submitted'. Word (.docx) is also available for quick edits."
     )
 
     status_options = ["All", "awaiting_approval", "approved", "submitted", "rejected"]
@@ -1234,19 +1232,10 @@ elif active_view == "📋 All Applications":
                     st.success(f"Approved at {app_row.get('approved_at')}. Ready for submission.")
                     c_auto, c_sub = st.columns(2)
                     with c_auto:
-                        if st.button("🌐 Launch Desktop Autofill (PDF - Laptop Only)", key=f"autofill_{app_id}", width="stretch"):
-                            try:
-                                res = launch_prefill_browser(
-                                    job_url=app_row.get("url") or "",
-                                    profile=profile,
-                                    resume_path=str(resume_file),
-                                )
-                                st.info(
-                                    f"Prefilled fields: {', '.join(res['filled_fields']) or 'None'}. "
-                                    "Click 'Mark as Submitted' once you finish submitting."
-                                )
-                            except Exception as e:
-                                st.error(str(e))
+                        if app_row.get("url"):
+                            st.link_button("🔗 Open & Apply (PDF)", app_row["url"], width="stretch")
+                        else:
+                            st.info("No direct job URL saved for this role.")
                     with c_sub:
                         if st.button("✔️ Mark as Submitted", key=f"submit_{app_id}", type="primary", width="stretch"):
                             try:
