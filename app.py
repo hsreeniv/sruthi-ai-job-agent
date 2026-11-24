@@ -1,11 +1,14 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import pandas as pd
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -37,14 +40,14 @@ from src.sources.manual import import_jobs_csv
 
 load_dotenv()
 st.set_page_config(
-    page_title="Sruthi AI Job Agent",
+    page_title="Sruthi AI Job Agent — NEO Command Center",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 init_db()
 
-# Modern Real-Time Command Center CSS
+# Modern Real-Time & NEO Command Center CSS
 st.markdown(
     """
     <style>
@@ -52,7 +55,6 @@ st.markdown(
     .block-container { padding-top: 1.1rem; padding-bottom: 2.5rem; max-width: 1420px; }
     section[data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e2e8f0; }
 
-    /* Pulsing Live Dot */
     @keyframes pulse {
         0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
         70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
@@ -82,7 +84,7 @@ st.markdown(
         flex-wrap: wrap;
         gap: 12px;
     }
-    .hero-left h1 { margin: 0 0 4px 0; color: #ffffff; font-size: 1.65rem; font-weight: 800; }
+    .hero-left h1 { margin: 0 0 4px 0; color: #ffffff; font-size: 1.62rem; font-weight: 800; }
     .hero-left p { margin: 0; color: #dbeafe; font-size: 0.9rem; }
     .hero-badge {
         background: rgba(255, 255, 255, 0.12);
@@ -126,6 +128,25 @@ st.markdown(
         border-radius: 999px;
     }
 
+    /* NEO & Google Radar Cards */
+    .radar-box {
+        background: #ffffff;
+        border: 1px solid #dbeafe;
+        border-left: 5px solid #2563eb;
+        border-radius: 12px;
+        padding: 14px 18px;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.06);
+    }
+    .neo-box {
+        background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+        border: 1px solid #bfdbfe;
+        border-left: 5px solid #7c3aed;
+        border-radius: 12px;
+        padding: 14px 18px;
+        margin-bottom: 1rem;
+    }
+
     /* KPI Metric Cards */
     div[data-testid="stMetric"] {
         background: #ffffff;
@@ -146,7 +167,7 @@ st.markdown(
         padding: 16px 18px;
         margin-bottom: 8px;
         box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
-        min-height: 185px;
+        min-height: 190px;
     }
     .spotlight-top {
         display: flex;
@@ -187,6 +208,7 @@ st.markdown(
     .pill-green { background: #dcfce7; color: #166534; }
     .pill-blue { background: #dbeafe; color: #1e40af; }
     .pill-amber { background: #fef3c7; color: #92400e; }
+    .pill-purple { background: #f3e8ff; color: #6b21a8; }
 
     .panel-header {
         font-size: 1.12rem;
@@ -201,6 +223,70 @@ st.markdown(
 
 profile = load_profile()
 
+
+def _google_24h_url(query: str) -> str:
+    # tbs=qdr:d filters Google Search results to the past 24 hours
+    return f"https://www.google.com/search?q={quote_plus(query)}&tbs=qdr:d"
+
+
+def _ingest_google_serper(profile_data: dict) -> dict:
+    """Optional live Google Search ingestion if SERPER_API_KEY is configured in Secrets."""
+    api_key = os.getenv("SERPER_API_KEY", "").strip()
+    if not api_key:
+        return {"inserted": 0, "fetched": 0, "enabled": False}
+
+    queries = [
+        "ece freshers jobs in bangalore 2027 opening",
+        "embedded systems intern bangalore 2027",
+        "vlsi design verification intern bangalore 2027",
+        "software engineer intern bangalore 2027 batch",
+    ]
+    fetched = 0
+    inserted = 0
+    for q in queries:
+        try:
+            resp = requests.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                json={"q": q, "gl": "in", "hl": "en", "tbs": "qdr:d", "num": 10},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                continue
+            organic = resp.json().get("organic", [])
+            for item in organic:
+                title = (item.get("title") or "").strip()
+                link = (item.get("link") or "").strip()
+                snippet = (item.get("snippet") or "").strip()
+                if not title or not link:
+                    continue
+                fetched += 1
+                company = title.split("-")[0].split("|")[0].strip()[:60] or "Google Search"
+                ev = evaluate_job(
+                    {"title": title, "location": "Bengaluru, Karnataka, India", "jd": f"{title}\n{snippet}"},
+                    profile_data,
+                )
+                if ev["eligibility_status"] == "Excluded":
+                    continue
+                res = save_job(
+                    title=title[:140],
+                    company=company,
+                    location="Bengaluru, Karnataka, India",
+                    url=link,
+                    source="Google Search (24h)",
+                    jd=f"{title}\n\n{snippet}",
+                    track=ev["track"],
+                    match_score=ev["match_score"],
+                    eligibility_status=ev["eligibility_status"],
+                    eligibility_reasons=ev["eligibility_reasons"],
+                )
+                if res.get("status") == "inserted":
+                    inserted += 1
+        except Exception:
+            continue
+    return {"inserted": inserted, "fetched": fetched, "enabled": True}
+
+
 # ================= SIDEBAR =================
 with st.sidebar:
     st.markdown("### 🎓 Candidate Profile")
@@ -212,11 +298,16 @@ with st.sidebar:
     )
     st.divider()
 
-    st.markdown("### 🎯 Daily Goal")
-    daily_goal = st.number_input("Applications / day target", min_value=1, max_value=25, value=5, step=1)
+    st.markdown("### 🤖 NEO Smart Mode")
+    neo_auto_prep = st.toggle(
+        "Auto-prepare 75%+ Bengaluru matches",
+        value=False,
+        help="Automatically generates tailored 1-page ATS resumes & answers for top Bengaluru matches after discovery.",
+    )
+    daily_goal = st.number_input("Daily application goal", min_value=1, max_value=25, value=5, step=1)
 
     st.markdown("### 🔎 Live Filters")
-    search_query = st.text_input("Search company or role", placeholder="e.g., Qualcomm, Embedded, Python")
+    search_query = st.text_input("Search company or role", placeholder="e.g., Cisco, Qualcomm, Embedded")
     track_filter = st.selectbox("Engineering Track", ["All", "Core Engineering", "IT", "Other"])
     elig_filter = st.selectbox("Eligibility Tier", ["All", "Likely eligible", "Review required"])
     bengaluru_only = st.checkbox("Bengaluru priority only", value=False)
@@ -225,10 +316,28 @@ with st.sidebar:
     st.divider()
     target_cap = int(profile.get("daily_discovery_target", 100))
     if st.button(f"🚀 Run 24h Discovery ({target_cap} cap)", type="primary", width="stretch"):
-        with st.spinner("Fetching 24h job boards and evaluating 2027 ECE eligibility..."):
+        with st.spinner("Scanning 24h job boards + Google radar & evaluating 2027 ECE eligibility..."):
             try:
                 result = discover_and_store(profile, target_cap)
-                st.success(result["summary"])
+                g_res = _ingest_google_serper(profile)
+                msg = result["summary"]
+                if g_res["enabled"]:
+                    msg += f" | Google 24h: +{g_res['inserted']} new"
+                if neo_auto_prep:
+                    fresh_jobs = sort_jobs_bengaluru_first(list_jobs(include_applied=False))
+                    existing_job_ids = {a.get("job_id") for a in list_applications()}
+                    top_to_prep = [
+                        j
+                        for j in fresh_jobs
+                        if j["id"] not in existing_job_ids
+                        and int(j.get("match_score") or 0) >= 75
+                        and j.get("eligibility_status") == "Likely eligible"
+                    ][:3]
+                    for j in top_to_prep:
+                        prepare_application_package(j, profile)
+                    if top_to_prep:
+                        msg += f" | NEO auto-prepared {len(top_to_prep)} resume packages"
+                st.success(msg)
                 st.rerun()
             except Exception as e:
                 st.error(f"Discovery failed: {e}")
@@ -270,6 +379,7 @@ def _apply_filters(job_list: list[dict], quick_mode: str = "All") -> list[dict]:
 # Load live data (applied & dismissed jobs automatically excluded)
 active_jobs = list_jobs(include_applied=False)
 apps = list_applications()
+apps_detailed = list_applications_detailed()
 runs = list_discovery_runs(limit=5)
 
 last_sync = runs[0].get("run_at", "")[:16].replace("T", " ") + " UTC" if runs else "Ready to sync"
@@ -278,7 +388,6 @@ submitted_today = sum(
     1 for a in apps if a.get("status") == "submitted" and str(a.get("submitted_at") or "").startswith(today_str)
 )
 submitted_total = sum(1 for a in apps if a.get("status") == "submitted")
-# Use total submitted if today's timestamp is in UTC or earlier
 goal_progress_count = max(submitted_today, 0)
 goal_pct = min(100, int((goal_progress_count / max(1, daily_goal)) * 100))
 
@@ -287,8 +396,8 @@ st.markdown(
     f"""
     <div class="hero-banner">
       <div class="hero-left">
-        <h1>🎯 Sruthi AI Job Agent — Live Command Center</h1>
-        <p>24h India Discovery • 2027 B.Tech ECE Guardrail • 1-Page ATS Resume Tailoring • Safe Playwright Autofill</p>
+        <h1>🎯 Sruthi AI Job Agent — NEO Command Center</h1>
+        <p>Live 24h Google & Board Radar • 2027 B.Tech ECE Guardrail • 1-Click Tailored ATS Resumes</p>
       </div>
       <div class="hero-badge">
         <span class="live-dot"></span>LIVE &nbsp;|&nbsp; Last Sync: {last_sync}
@@ -327,30 +436,92 @@ blr_count = sum(
     if "bengaluru" in (j.get("location") or "").lower()
     or "bangalore" in (j.get("location") or "").lower()
 )
-awaiting_count = sum(1 for a in apps if a.get("status") == "awaiting_approval")
+awaiting_count = sum(1 for a in apps if a.get("status") in ("awaiting_approval", "approved"))
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Active Unapplied", len(active_jobs))
 k2.metric("Likely Eligible", likely_count)
 k3.metric("Bengaluru Priority", blr_count)
-k4.metric("Awaiting Approval", awaiting_count)
+k4.metric("NEO Ready Queue", awaiting_count)
 k5.metric("Total Submitted", submitted_total)
 
 st.write("")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📊 Live Dashboard", "🔍 Discover & Queue", "📋 Applications", "🏢 Company Directory", "👤 Profile"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    [
+        "📊 Live Dashboard",
+        "⚡ NEO 1-Tap Queue",
+        "🔍 Discover & Manual",
+        "📋 All Applications",
+        "🏢 Company Directory",
+        "👤 Profile",
+    ]
 )
 
 # ================= TAB 1: LIVE DASHBOARD =================
 with tab1:
-    # Quick-filter bar
-    quick_mode = st.segmented_control(
-        "Quick Focus",
-        ["All", "🔥 Bengaluru Only", "⚡ Core ECE", "💻 IT / Software", "⭐ Score 70+"],
-        default="All",
-        label_visibility="collapsed",
-    ) or "All"
+    # Live Google 24h Search Radar (Just like searching in Google!)
+    st.markdown(
+        """
+        <div class="radar-box">
+          <strong>🔎 Live Google 24h Job Radar (Bengaluru • 2027 ECE &amp; Freshers)</strong><br>
+          <span style="font-size:0.84rem;color:#475569;">Tap any pill below to open live Google results posted in the last 24 hours directly on your phone or laptop:</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    g_presets = [
+        ("📡 ECE Freshers 2027 BLR", "ece freshers jobs in bangalore 2027 opening"),
+        ("🔌 Embedded / Firmware Intern", "embedded systems firmware intern bangalore 2027"),
+        ("🔬 VLSI / RTL Design Intern", "vlsi rtl design verification intern bangalore 2027"),
+        ("🌐 Cisco / Qualcomm / TI", "site:careers.cisco.com OR site:qualcomm.com OR site:ti.com intern bangalore 2027"),
+        ("💻 Junior Software / Python", "junior software engineer python intern bangalore 2027"),
+    ]
+    g_cols = st.columns(len(g_presets))
+    for idx, (label, q_str) in enumerate(g_presets):
+        with g_cols[idx]:
+            st.link_button(label, _google_24h_url(q_str), width="stretch")
+
+    gs1, gs2 = st.columns([4, 1.3])
+    with gs1:
+        custom_google_q = st.text_input(
+            "Custom Google 24h search",
+            value="ece freshers jobs in bangalore 2027 opening",
+            label_visibility="collapsed",
+            placeholder="Type any Google job query (automatically filtered to last 24h)...",
+        )
+    with gs2:
+        st.link_button(
+            "🔎 Search Google (24h)",
+            _google_24h_url(custom_google_q or "ece freshers jobs in bangalore 2027 opening"),
+            type="primary",
+            width="stretch",
+        )
+
+    st.divider()
+
+    # Quick-filter bar + NEO Auto-Prepare Action
+    qf_col, neo_btn_col = st.columns([3.5, 1.5])
+    with qf_col:
+        quick_mode = st.segmented_control(
+            "Quick Focus",
+            ["All", "🔥 Bengaluru Only", "⚡ Core ECE", "💻 IT / Software", "⭐ Score 70+"],
+            default="All",
+            label_visibility="collapsed",
+        ) or "All"
+    with neo_btn_col:
+        if st.button("⚡ NEO Auto-Prepare Top 3", type="primary", width="stretch"):
+            candidates = _apply_filters(active_jobs, quick_mode=quick_mode)
+            existing_ids = {a.get("job_id") for a in apps}
+            unprepped = [j for j in candidates if j["id"] not in existing_ids][:3]
+            if not unprepped:
+                st.info("Top matching jobs are already prepared in your NEO 1-Tap Queue!")
+            else:
+                with st.spinner(f"NEO AI is tailoring {len(unprepped)} 1-page ATS resumes..."):
+                    for j in unprepped:
+                        prepare_application_package(j, profile)
+                    st.success(f"Prepared {len(unprepped)} packages! Open the '⚡ NEO 1-Tap Queue' tab.")
+                    st.rerun()
 
     filtered_jobs = _apply_filters(active_jobs, quick_mode=quick_mode)
 
@@ -394,15 +565,15 @@ with tab1:
                 b1, b2, b3 = st.columns([1.2, 1.1, 0.9])
                 with b1:
                     if st.button("📄 Prepare", key=f"dash_prep_{job['id']}", type="primary", width="stretch"):
-                        with st.spinner("Preparing package..."):
+                        with st.spinner("Tailoring resume..."):
                             try:
                                 pkg = prepare_application_package(job, profile)
-                                st.success(f"Queued App #{pkg['application_id']}!")
+                                st.success(f"Ready in NEO Queue (#{pkg['application_id']})!")
                             except Exception as e:
                                 st.error(str(e))
                 with b2:
                     if job.get("url"):
-                        st.link_button("🔗 Open", job["url"], width="stretch")
+                        st.link_button("🔗 Apply", job["url"], width="stretch")
                 with b3:
                     if st.button("🙈 Hide", key=f"dash_hide_{job['id']}", width="stretch"):
                         dismiss_job(job["id"], reason_status="dismissed")
@@ -474,28 +645,94 @@ with tab1:
             },
         )
 
-    if runs:
-        with st.expander("🕒 Recent Discovery Runs Log", expanded=False):
-            run_cols = [
-                "run_at",
-                "jobs_fetched",
-                "jobs_matched",
-                "new_jobs_inserted",
-                "duplicates_skipped",
-                "expired_marked",
-                "error_count",
-            ]
-            st.dataframe([{k: r.get(k) for k in run_cols} for r in runs], width="stretch", hide_index=True)
-
-# ================= TAB 2: DISCOVER & QUEUE =================
+# ================= TAB 2: NEO 1-TAP MOBILE QUEUE =================
 with tab2:
+    st.markdown(
+        """
+        <div class="neo-box">
+          <strong>⚡ NEO 1-Tap Mobile Application Deck</strong><br>
+          <span style="font-size:0.86rem;color:#334155;">Each card below already has a tailored 1-page ATS resume &amp; screening answers ready. On mobile: <b>1. Download Resume → 2. Tap Open &amp; Apply → 3. Mark Submitted</b>.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    ready_queue = [a for a in apps_detailed if a.get("status") in ("awaiting_approval", "approved")]
+    if not ready_queue:
+        st.info("No tailored packages in the queue yet. Click '⚡ NEO Auto-Prepare Top 3' on the Live Dashboard!")
+    else:
+        for app_row in ready_queue:
+            app_id = app_row["id"]
+            status = app_row.get("status", "awaiting_approval")
+            try:
+                ans_data = json.loads(app_row.get("answers_json") or "{}")
+            except Exception:
+                ans_data = {"answers": []}
+            ats_rep = ans_data.get("ats_report") or {}
+            ats_score = ats_rep.get("ats_score", "N/A")
+
+            with st.container(border=True):
+                c_info, c_badges = st.columns([3, 1.2])
+                with c_info:
+                    st.markdown(f"### {app_row['company']} — {app_row['title']}")
+                    st.caption(
+                        f"📍 {app_row.get('location') or 'Bengaluru, India'} • "
+                        f"Match: {app_row.get('match_score')}% • ATS Score: {ats_score}/100"
+                    )
+                with c_badges:
+                    st.markdown(
+                        f"<div style='text-align:right;'><span class='pill pill-purple'>{status.upper()}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                resume_file = Path(app_row.get("resume_path") or "")
+                m1, m2, m3, m4 = st.columns([1.3, 1.2, 1.2, 0.9])
+                with m1:
+                    if resume_file.exists():
+                        mime = (
+                            "application/pdf"
+                            if resume_file.suffix.lower() == ".pdf"
+                            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                        with open(resume_file, "rb") as f:
+                            st.download_button(
+                                "⬇️ 1. Tailored Resume",
+                                f,
+                                file_name=resume_file.name,
+                                mime=mime,
+                                key=f"neo_dl_{app_id}",
+                                width="stretch",
+                            )
+                with m2:
+                    if app_row.get("url"):
+                        st.link_button("🔗 2. Open & Apply", app_row["url"], type="primary", width="stretch")
+                with m3:
+                    if st.button("✔️ 3. Mark Submitted", key=f"neo_sub_{app_id}", width="stretch"):
+                        if status == "awaiting_approval":
+                            approve_application(app_id)
+                        mark_application_submitted(app_id)
+                        st.success("Submitted & removed from active feed!")
+                        st.rerun()
+                with m4:
+                    if st.button("🗑️ Skip", key=f"neo_rej_{app_id}", width="stretch"):
+                        reject_application(app_id)
+                        st.rerun()
+
+                if ans_data.get("answers"):
+                    with st.expander("📝 Copy-Ready Screening Answers"):
+                        for idx, item in enumerate(ans_data["answers"]):
+                            st.markdown(f"**Q{idx + 1}: {item.get('question', '')}**")
+                            st.code(item.get("draft_answer", ""), language=None)
+
+# ================= TAB 3: DISCOVER & MANUAL =================
+with tab3:
     filtered_feed = _apply_filters(active_jobs)
     st.subheader("Active Job Feed & Manual Entry")
     st.caption("Already-applied and hidden jobs are permanently excluded from this feed and future daily runs.")
 
     c_add, c_csv = st.columns(2)
     with c_add:
-        with st.expander("➕ Add a job manually"):
+        with st.expander("➕ Paste a job found on Google / LinkedIn / Naukri"):
             with st.form("add_job"):
                 title = st.text_input("Job title")
                 company = st.text_input("Company")
@@ -503,7 +740,7 @@ with tab2:
                 url = st.text_input("Job URL")
                 source = st.selectbox(
                     "Source",
-                    ["Manual", "Company careers", "LinkedIn", "Indeed", "Naukri", "Greenhouse", "Lever", "Other"],
+                    ["Google Search", "Company careers", "LinkedIn", "Indeed", "Naukri", "Greenhouse", "Lever", "Manual"],
                 )
                 jd = st.text_area("Full job description", height=160)
                 if st.form_submit_button("Evaluate & Save Job"):
@@ -588,7 +825,7 @@ with tab2:
                                 ats_val = (pkg.get("ats_report") or {}).get("ats_score", "N/A")
                                 st.success(
                                     f"Queued Application #{pkg['application_id']} (ATS Score: {ats_val}/100). "
-                                    "Open the Applications tab to review & approve."
+                                    "Open '⚡ NEO 1-Tap Queue' or '📋 All Applications'."
                                 )
                             except Exception as e:
                                 st.error(f"Preparation failed: {e}")
@@ -612,14 +849,13 @@ with tab2:
                                 key=f"download_{job['id']}",
                             )
 
-# ================= TAB 3: APPLICATIONS =================
-with tab3:
-    st.subheader("Application Queue (Approval Required)")
+# ================= TAB 4: ALL APPLICATIONS =================
+with tab4:
+    st.subheader("Full Application History & Desktop Autofill")
     st.caption(
-        "Workflow: Prepare Package → Review ATS Score & Answers → Approve → Launch Autofill Browser → Manual Submit → Mark Submitted."
+        "Use '⚡ NEO 1-Tap Queue' on mobile, or use desktop Playwright prefill below when running on your laptop."
     )
 
-    apps_detailed = list_applications_detailed()
     status_filter = st.selectbox(
         "Filter by status",
         ["All", "awaiting_approval", "approved", "submitted", "rejected"],
@@ -631,7 +867,7 @@ with tab3:
     )
 
     if not filtered_apps:
-        st.info("No applications in this status. Click 'Prepare' on any job in Live Dashboard or Discover & Queue.")
+        st.info("No applications in this status.")
     else:
         for app_row in filtered_apps:
             app_id = app_row["id"]
@@ -679,8 +915,6 @@ with tab3:
                             mime=mime,
                             key=f"app_dl_{app_id}",
                         )
-                else:
-                    st.warning("Resume file not found on disk.")
 
                 answers_list = ans_data.get("answers", [])
                 if answers_list:
@@ -718,10 +952,10 @@ with tab3:
                             st.rerun()
 
                 elif status == "approved":
-                    st.success(f"Approved at {app_row.get('approved_at')}. Ready for manual review & submission.")
+                    st.success(f"Approved at {app_row.get('approved_at')}. Ready for submission.")
                     c_auto, c_sub = st.columns(2)
                     with c_auto:
-                        if st.button("🌐 Launch Autofill Browser (Prefill & Pause)", key=f"autofill_{app_id}", type="primary", width="stretch"):
+                        if st.button("🌐 Launch Desktop Autofill (Laptop Only)", key=f"autofill_{app_id}", width="stretch"):
                             try:
                                 res = launch_prefill_browser(
                                     job_url=app_row.get("url") or "",
@@ -730,12 +964,12 @@ with tab3:
                                 )
                                 st.info(
                                     f"Prefilled fields: {', '.join(res['filled_fields']) or 'None'}. "
-                                    "Click 'Mark as Submitted' once you finish submitting in the browser."
+                                    "Click 'Mark as Submitted' once you finish submitting."
                                 )
                             except Exception as e:
                                 st.error(str(e))
                     with c_sub:
-                        if st.button("✔️ Mark as Submitted (After Manual Submit)", key=f"submit_{app_id}", width="stretch"):
+                        if st.button("✔️ Mark as Submitted", key=f"submit_{app_id}", type="primary", width="stretch"):
                             try:
                                 mark_application_submitted(app_id)
                                 st.success("Marked as submitted and removed from active discovery feed!")
@@ -748,8 +982,8 @@ with tab3:
                 elif status == "rejected":
                     st.info("Application was rejected.")
 
-# ================= TAB 4: COMPANY DIRECTORY =================
-with tab4:
+# ================= TAB 5: COMPANY DIRECTORY =================
+with tab5:
     st.subheader("Employer Source Directory")
     if st.button("Sync directory from config/boards.json"):
         count = sync_company_directory(load_board_config())
@@ -772,8 +1006,8 @@ with tab4:
     ]
     st.dataframe([{k: d.get(k) for k in dir_cols} for d in directory], width="stretch", hide_index=True)
 
-# ================= TAB 5: PROFILE =================
-with tab5:
+# ================= TAB 6: PROFILE =================
+with tab6:
     st.subheader("Verified Candidate Profile")
     st.caption("Edit `data/profile.json` to maintain the verified master profile. No unverified facts are ever fabricated.")
     st.json(profile)
