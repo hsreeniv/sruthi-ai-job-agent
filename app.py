@@ -129,6 +129,22 @@ st.markdown(
         border-radius: 999px;
     }
 
+    /* Split Side Headers */
+    .side-header-ece {
+        background: linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%);
+        border-left: 5px solid #2563eb;
+        padding: 12px 16px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+    .side-header-it {
+        background: linear-gradient(90deg, #f5f3ff 0%, #ede9fe 100%);
+        border-left: 5px solid #7c3aed;
+        padding: 12px 16px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+
     /* NEO & Google Radar Cards */
     .radar-box {
         background: #ffffff;
@@ -153,16 +169,15 @@ st.markdown(
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 14px;
-        padding: 16px 18px;
+        padding: 14px 16px;
         margin-bottom: 8px;
         box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
-        min-height: 190px;
     }
     .spotlight-top {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
     }
     .spotlight-company { font-size: 0.88rem; font-weight: 700; color: #2563eb; }
     .score-badge {
@@ -170,19 +185,28 @@ st.markdown(
         color: #ffffff;
         padding: 3px 9px;
         border-radius: 999px;
-        font-size: 0.76rem;
+        font-size: 0.74rem;
         font-weight: 700;
     }
-    .spotlight-title { font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; line-height: 1.3; }
-    .spotlight-meta { font-size: 0.82rem; color: #475569; margin-bottom: 8px; }
+    .ats-badge {
+        background: #10b981;
+        color: #ffffff;
+        padding: 3px 9px;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        margin-left: 5px;
+    }
+    .spotlight-title { font-size: 1.02rem; font-weight: 800; color: #0f172a; margin-bottom: 4px; line-height: 1.3; }
+    .spotlight-meta { font-size: 0.80rem; color: #475569; margin-bottom: 6px; }
     .spotlight-reason {
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         color: #334155;
         background: #f8fafc;
         border-left: 3px solid #cbd5e1;
-        padding: 6px 8px;
+        padding: 5px 8px;
         border-radius: 4px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
     }
 
     /* Pills */
@@ -219,6 +243,8 @@ if "pending_view" in st.session_state:
     st.session_state["active_view"] = st.session_state.pop("pending_view")
 if "quick_mode" not in st.session_state:
     st.session_state["quick_mode"] = "All"
+if "pending_quick_mode" in st.session_state:
+    st.session_state["quick_mode"] = st.session_state.pop("pending_quick_mode")
 if "kpi_elig_override" not in st.session_state:
     st.session_state["kpi_elig_override"] = "All"
 if "app_status_override" not in st.session_state:
@@ -247,7 +273,6 @@ def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int =
     raw_results = []
     source_label = "Google Search (24h)"
 
-    # 1. Try Serper.dev Google API if configured in Secrets
     if api_key:
         try:
             resp = requests.post(
@@ -268,7 +293,6 @@ def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int =
         except Exception:
             pass
 
-    # 2. Zero-key fallback: Live DuckDuckGo HTML search
     if not raw_results:
         source_label = "Live Web Search"
         try:
@@ -335,6 +359,7 @@ def _ingest_google_batch(profile_data: dict) -> dict:
         "ece freshers jobs in bangalore 2027 opening",
         "embedded systems intern bangalore 2027",
         "vlsi design verification intern bangalore 2027",
+        "junior software engineer python intern bangalore 2027",
     ]
     total_fetched = 0
     total_inserted = 0
@@ -343,6 +368,85 @@ def _ingest_google_batch(profile_data: dict) -> dict:
         total_fetched += r["fetched"]
         total_inserted += r["inserted"]
     return {"fetched": total_fetched, "inserted": total_inserted}
+
+
+def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
+    """Renders a job card with automatic JD-based PDF resume download + ATS score if prepared."""
+    elig = job.get("eligibility_status", "Review required")
+    pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
+    score_val = int(job.get("match_score") or 0)
+    try:
+        reasons = json.loads(job.get("eligibility_reasons") or "[]")
+        reason_txt = reasons[0] if reasons else "Matched 2027 India engineering criteria."
+    except Exception:
+        reason_txt = "Matched 2027 India engineering criteria."
+
+    prepped = prepped_by_job_id.get(job["id"])
+    ats_html = ""
+    resume_file = None
+    if prepped:
+        try:
+            ans_data = json.loads(prepped.get("answers_json") or "{}")
+            ats_score = (ans_data.get("ats_report") or {}).get("ats_score")
+            if ats_score is not None:
+                ats_html = f'<span class="ats-badge">ATS {ats_score}%</span>'
+        except Exception:
+            pass
+        p = Path(prepped.get("resume_path") or "")
+        if p.exists():
+            resume_file = p
+
+    st.markdown(
+        f"""
+        <div class="spotlight-card">
+          <div class="spotlight-top">
+            <span class="spotlight-company">{job.get('company', '')[:32]}</span>
+            <div><span class="score-badge">Match {score_val}%</span>{ats_html}</div>
+          </div>
+          <div class="spotlight-title">{job.get('title', '')[:62]}</div>
+          <div class="spotlight-meta">📍 {job.get('location', 'India')} &nbsp;•&nbsp; {job.get('source', '')}</div>
+          <div class="spotlight-reason">{reason_txt[:95]}</div>
+          <div>
+            <span class="pill {pill_cls}">{elig}</span>
+            <span class="pill pill-blue">{job.get('track', 'Other')}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    b1, b2, b3 = st.columns([1.4, 1.0, 0.8])
+    with b1:
+        if resume_file:
+            mime = (
+                "application/pdf"
+                if resume_file.suffix.lower() == ".pdf"
+                else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+            with open(resume_file, "rb") as f:
+                st.download_button(
+                    "⬇️ Tailored PDF",
+                    f,
+                    file_name=resume_file.name,
+                    mime=mime,
+                    key=f"{prefix}_dl_{job['id']}",
+                    type="primary",
+                    width="stretch",
+                )
+        else:
+            if st.button("📄 Auto-Tailor PDF", key=f"{prefix}_prep_{job['id']}", type="primary", width="stretch"):
+                with st.spinner("Tailoring PDF resume to JD & scoring ATS..."):
+                    try:
+                        prepare_application_package(job, profile)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+    with b2:
+        if job.get("url"):
+            st.link_button("🔗 Apply", job["url"], width="stretch")
+    with b3:
+        if st.button("🙈 Hide", key=f"{prefix}_hide_{job['id']}", width="stretch"):
+            dismiss_job(job["id"], reason_status="dismissed")
+            st.rerun()
 
 
 # ================= SIDEBAR =================
@@ -356,11 +460,11 @@ with st.sidebar:
     )
     st.divider()
 
-    st.markdown("### 🤖 NEO Smart Mode")
+    st.markdown("### 🤖 NEO Auto-Resume Mode")
     neo_auto_prep = st.toggle(
-        "Auto-prepare 75%+ Bengaluru matches",
-        value=False,
-        help="Automatically generates tailored 1-page ATS PDF resumes & answers for top Bengaluru matches after discovery.",
+        "Auto-tailor JD PDF resumes after discovery",
+        value=True,
+        help="Automatically generates tailored 1-page ATS PDF resumes for top Core ECE & IT matches after discovery.",
     )
     daily_goal = st.number_input("Daily application goal", min_value=1, max_value=25, value=5, step=1)
 
@@ -374,7 +478,7 @@ with st.sidebar:
     st.divider()
     target_cap = int(profile.get("daily_discovery_target", 100))
     if st.button(f"🚀 Run 24h Discovery ({target_cap} cap)", type="primary", width="stretch"):
-        with st.spinner("Scanning 24h job boards + live web search & evaluating 2027 ECE eligibility..."):
+        with st.spinner("Scanning 24h job boards + live web search & tailoring top resumes..."):
             try:
                 result = discover_and_store(profile, target_cap)
                 g_res = _ingest_google_batch(profile)
@@ -384,17 +488,18 @@ with st.sidebar:
                 if neo_auto_prep:
                     fresh_jobs = sort_jobs_bengaluru_first(list_jobs(include_applied=False))
                     existing_job_ids = {a.get("job_id") for a in list_applications()}
-                    top_to_prep = [
-                        j
-                        for j in fresh_jobs
-                        if j["id"] not in existing_job_ids
-                        and int(j.get("match_score") or 0) >= 75
-                        and j.get("eligibility_status") == "Likely eligible"
-                    ][:3]
-                    for j in top_to_prep:
+                    top_ece = [
+                        j for j in fresh_jobs
+                        if j["id"] not in existing_job_ids and j.get("track") == "Core Engineering"
+                    ][:2]
+                    top_it = [
+                        j for j in fresh_jobs
+                        if j["id"] not in existing_job_ids and j.get("track") == "IT"
+                    ][:2]
+                    for j in top_ece + top_it:
                         prepare_application_package(j, profile)
-                    if top_to_prep:
-                        msg += f" | NEO auto-prepared {len(top_to_prep)} resume packages"
+                    if top_ece or top_it:
+                        msg += f" | Auto-tailored {len(top_ece) + len(top_it)} JD PDF resumes"
                 st.success(msg)
                 st.rerun()
             except Exception as e:
@@ -448,11 +553,12 @@ def _apply_filters(job_list: list[dict], quick_mode: str = "All") -> list[dict]:
     return out
 
 
-# Load live data (applied & dismissed jobs automatically excluded)
+# Load live data
 active_jobs = list_jobs(include_applied=False)
 apps = list_applications()
 apps_detailed = list_applications_detailed()
 runs = list_discovery_runs(limit=5)
+prepped_by_job_id = {a.get("job_id"): a for a in apps_detailed if a.get("status") != "rejected"}
 
 last_sync = runs[0].get("run_at", "")[:16].replace("T", " ") + " UTC" if runs else "Ready to sync"
 today_str = datetime.now().strftime("%Y-%m-%d")
@@ -469,7 +575,7 @@ st.markdown(
     <div class="hero-banner">
       <div class="hero-left">
         <h1>🎯 Sruthi AI Job Agent — NEO Command Center</h1>
-        <p>In-App 24h Web & Board Discovery • 2027 B.Tech ECE Guardrail • 1-Click Tailored ATS PDF Resumes</p>
+        <p>Core ECE &amp; IT Split View • In-App 24h Web Radar • Automatic JD-Based ATS PDF Resumes</p>
       </div>
       <div class="hero-badge">
         <span class="live-dot"></span>LIVE &nbsp;|&nbsp; Last Sync: {last_sync}
@@ -501,7 +607,8 @@ st.markdown(
 )
 
 # ================= CLICKABLE TOP KPI STRIP =================
-likely_count = sum(1 for j in active_jobs if j.get("eligibility_status") == "Likely eligible")
+ece_count = sum(1 for j in active_jobs if j.get("track") == "Core Engineering")
+it_count = sum(1 for j in active_jobs if j.get("track") == "IT")
 blr_count = sum(
     1
     for j in active_jobs
@@ -512,36 +619,36 @@ awaiting_count = sum(1 for a in apps if a.get("status") in ("awaiting_approval",
 
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
-    if st.button(f"Active Unapplied\n\n**{len(active_jobs)}**", key="kpi_all", width="stretch"):
+    if st.button(f"⚡ Core ECE Jobs\n\n**{ece_count}**", key="kpi_ece", width="stretch"):
         st.session_state["active_view"] = "🔍 Discover & Manual"
-        st.session_state["quick_mode"] = "All"
+        st.session_state["quick_mode"] = "⚡ Core ECE"
         st.session_state["kpi_elig_override"] = "All"
         st.rerun()
 with k2:
-    if st.button(f"Likely Eligible\n\n**{likely_count}**", key="kpi_elig", width="stretch"):
+    if st.button(f"💻 IT / Software\n\n**{it_count}**", key="kpi_it", width="stretch"):
         st.session_state["active_view"] = "🔍 Discover & Manual"
-        st.session_state["quick_mode"] = "All"
-        st.session_state["kpi_elig_override"] = "Likely eligible"
+        st.session_state["quick_mode"] = "💻 IT / Software"
+        st.session_state["kpi_elig_override"] = "All"
         st.rerun()
 with k3:
-    if st.button(f"Bengaluru Priority\n\n**{blr_count}**", key="kpi_blr", width="stretch"):
+    if st.button(f"📍 Bengaluru Priority\n\n**{blr_count}**", key="kpi_blr", width="stretch"):
         st.session_state["active_view"] = "🔍 Discover & Manual"
         st.session_state["quick_mode"] = "🔥 Bengaluru Only"
         st.session_state["kpi_elig_override"] = "All"
         st.rerun()
 with k4:
-    if st.button(f"NEO Ready Queue\n\n**{awaiting_count}**", key="kpi_neo", width="stretch"):
+    if st.button(f"📄 NEO Ready PDFs\n\n**{awaiting_count}**", key="kpi_neo", width="stretch"):
         st.session_state["active_view"] = "⚡ NEO 1-Tap Queue"
         st.rerun()
 with k5:
-    if st.button(f"Total Submitted\n\n**{submitted_total}**", key="kpi_sub", width="stretch"):
+    if st.button(f"✔️ Total Submitted\n\n**{submitted_total}**", key="kpi_sub", width="stretch"):
         st.session_state["active_view"] = "📋 All Applications"
         st.session_state["app_status_override"] = "submitted"
         st.rerun()
 
 st.write("")
 
-# Navigation bar (synced with clickable KPIs)
+# Navigation bar
 views = [
     "📊 Live Dashboard",
     "⚡ NEO 1-Tap Queue",
@@ -557,21 +664,21 @@ active_view = st.segmented_control(
     label_visibility="collapsed",
 ) or "📊 Live Dashboard"
 
-# ================= VIEW 1: LIVE DASHBOARD =================
+# ================= VIEW 1: LIVE DASHBOARD (CORE ECE vs IT SPLIT) =================
 if active_view == "📊 Live Dashboard":
     st.markdown(
         """
         <div class="radar-box">
-          <strong>🔎 In-App Live 24h Job Radar (Bengaluru • 2027 ECE &amp; Freshers)</strong><br>
-          <span style="font-size:0.84rem;color:#475569;">Tap any pill or enter a query below to fetch live job links &amp; JDs directly into your dashboard (no new Google tab):</span>
+          <strong>🔎 In-App Live 24h Job Radar (Bengaluru • 2027 ECE &amp; IT)</strong><br>
+          <span style="font-size:0.84rem;color:#475569;">Tap any pill or enter a query to fetch live job links &amp; JDs directly into the Core ECE and IT panels below:</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
     g_presets = [
         ("📡 ECE Freshers 2027 BLR", "ece freshers jobs in bangalore 2027 opening"),
-        ("🔌 Embedded / Firmware Intern", "embedded systems firmware intern bangalore 2027"),
-        ("🔬 VLSI / RTL Design Intern", "vlsi rtl design verification intern bangalore 2027"),
+        ("🔌 Embedded / Firmware", "embedded systems firmware intern bangalore 2027"),
+        ("🔬 VLSI / RTL Design", "vlsi rtl design verification intern bangalore 2027"),
         ("🌐 Cisco / Qualcomm / TI", "Cisco OR Qualcomm OR Texas Instruments intern bangalore 2027"),
         ("💻 Junior Software / Python", "junior software engineer python intern bangalore 2027"),
     ]
@@ -581,9 +688,8 @@ if active_view == "📊 Live Dashboard":
             if st.button(label, key=f"inapp_g_{idx}", width="stretch"):
                 with st.spinner(f"Fetching live links & JDs for '{q_str}'..."):
                     res = _search_and_ingest_in_app(q_str, profile)
-                    st.session_state["quick_mode"] = "🔎 Google / Web"
-                    st.session_state["kpi_elig_override"] = "All"
-                    st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added to your feed!).")
+                    st.session_state["pending_quick_mode"] = "🔎 Google / Web"
+                    st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added!).")
                     st.rerun()
 
     gs1, gs2 = st.columns([4, 1.3])
@@ -599,15 +705,77 @@ if active_view == "📊 Live Dashboard":
             q_run = custom_google_q.strip() or "ece freshers jobs in bangalore 2027 opening"
             with st.spinner(f"Fetching live links & JDs for '{q_run}'..."):
                 res = _search_and_ingest_in_app(q_run, profile)
-                st.session_state["quick_mode"] = "🔎 Google / Web"
-                st.session_state["kpi_elig_override"] = "All"
-                st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added to your feed!).")
+                st.session_state["pending_quick_mode"] = "🔎 Google / Web"
+                st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added!).")
                 st.rerun()
 
     st.divider()
 
-    # Quick-filter bar + NEO Auto-Prepare Action
-    qf_col, neo_btn_col = st.columns([3.7, 1.3])
+    # Split Active Jobs into Core ECE side and IT / Software side
+    all_filtered = _apply_filters(active_jobs, quick_mode="All")
+    ece_jobs = [j for j in all_filtered if j.get("track") == "Core Engineering"]
+    it_jobs = [j for j in all_filtered if j.get("track") == "IT"]
+
+    left_col, right_col = st.columns(2, gap="large")
+
+    # ---------- LEFT SIDE: CORE ECE ----------
+    with left_col:
+        st.markdown(
+            f"""
+            <div class="side-header-ece">
+              <strong style="font-size:1.1rem;color:#1e3a8a;">⚡ Core ECE Side ({len(ece_jobs)} jobs)</strong><br>
+              <span style="font-size:0.82rem;color:#334155;">VLSI, Embedded Systems, Firmware, Hardware &amp; Semiconductor roles</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("⚡ Auto-Tailor Top 3 Core ECE PDF Resumes", key="auto_ece_3", type="primary", width="stretch"):
+            unprepped = [j for j in ece_jobs if j["id"] not in prepped_by_job_id][:3]
+            if not unprepped:
+                st.info("Top 3 Core ECE jobs already have tailored PDF resumes ready below!")
+            else:
+                with st.spinner(f"Tailoring {len(unprepped)} Core ECE PDF resumes to their JDs..."):
+                    for j in unprepped:
+                        prepare_application_package(j, profile)
+                    st.rerun()
+
+        if not ece_jobs:
+            st.info("No Core ECE jobs match your current filters.")
+        else:
+            for job in ece_jobs[:5]:
+                _render_job_card(job, prepped_by_job_id, prefix="ece")
+
+    # ---------- RIGHT SIDE: IT / SOFTWARE ----------
+    with right_col:
+        st.markdown(
+            f"""
+            <div class="side-header-it">
+              <strong style="font-size:1.1rem;color:#5b21b6;">💻 IT / Software Side ({len(it_jobs)} jobs)</strong><br>
+              <span style="font-size:0.82rem;color:#334155;">Python, Software Engineer, QA/Automation, AI/ML &amp; Data roles</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("⚡ Auto-Tailor Top 3 IT PDF Resumes", key="auto_it_3", type="primary", width="stretch"):
+            unprepped = [j for j in it_jobs if j["id"] not in prepped_by_job_id][:3]
+            if not unprepped:
+                st.info("Top 3 IT jobs already have tailored PDF resumes ready below!")
+            else:
+                with st.spinner(f"Tailoring {len(unprepped)} IT PDF resumes to their JDs..."):
+                    for j in unprepped:
+                        prepare_application_package(j, profile)
+                    st.rerun()
+
+        if not it_jobs:
+            st.info("No IT / Software jobs match your current filters.")
+        else:
+            for job in it_jobs[:5]:
+                _render_job_card(job, prepped_by_job_id, prefix="it")
+
+    st.divider()
+
+    # Full Interactive Table + Quick Filter
+    qf_col, exp_col = st.columns([4, 1])
     with qf_col:
         quick_mode = st.segmented_control(
             "Quick Focus",
@@ -615,129 +783,27 @@ if active_view == "📊 Live Dashboard":
             key="quick_mode",
             label_visibility="collapsed",
         ) or "All"
-    with neo_btn_col:
-        if st.button("⚡ NEO Auto-Prepare Top 3", type="primary", width="stretch"):
-            candidates = _apply_filters(active_jobs, quick_mode=quick_mode)
-            existing_ids = {a.get("job_id") for a in apps}
-            unprepped = [j for j in candidates if j["id"] not in existing_ids][:3]
-            if not unprepped:
-                st.info("Top matching jobs are already prepared in your NEO 1-Tap Queue!")
-            else:
-                with st.spinner(f"NEO AI is tailoring {len(unprepped)} 1-page ATS PDF resumes..."):
-                    for j in unprepped:
-                        prepare_application_package(j, profile)
-                    st.session_state["pending_view"] = "⚡ NEO 1-Tap Queue"
-                    st.rerun()
+    table_filtered = _apply_filters(active_jobs, quick_mode=quick_mode)
 
-    filtered_jobs = _apply_filters(active_jobs, quick_mode=quick_mode)
-
-    # 1. Spotlight: Top 3 Priority Matches
-    active_elig_badge = (
-        f" • Filtered: {st.session_state['kpi_elig_override']}"
-        if st.session_state.get("kpi_elig_override", "All") != "All"
-        else ""
-    )
     st.markdown(
-        f'<div class="panel-header">🔥 Top Priority Matches to Apply Right Now ({len(filtered_jobs)} ready{active_elig_badge})</div>',
+        f'<div class="panel-header">📋 All Matching Opportunities ({len(table_filtered)})</div>',
         unsafe_allow_html=True,
     )
-    if filtered_jobs:
-        top3 = filtered_jobs[:3]
-        cols = st.columns(len(top3))
-        for idx, job in enumerate(top3):
-            with cols[idx]:
-                elig = job.get("eligibility_status", "Review required")
-                pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
-                score_val = int(job.get("match_score") or 0)
-                try:
-                    reasons = json.loads(job.get("eligibility_reasons") or "[]")
-                    reason_txt = reasons[0] if reasons else "Matched 2027 India engineering criteria."
-                except Exception:
-                    reason_txt = "Matched 2027 India engineering criteria."
-
-                st.markdown(
-                    f"""
-                    <div class="spotlight-card">
-                      <div class="spotlight-top">
-                        <span class="spotlight-company">{job.get('company', '')[:32]}</span>
-                        <span class="score-badge">Match {score_val}%</span>
-                      </div>
-                      <div class="spotlight-title">{job.get('title', '')[:60]}</div>
-                      <div class="spotlight-meta">📍 {job.get('location', 'India')} &nbsp;•&nbsp; {job.get('source', '')}</div>
-                      <div class="spotlight-reason">{reason_txt[:95]}</div>
-                      <div>
-                        <span class="pill {pill_cls}">{elig}</span>
-                        <span class="pill pill-blue">{job.get('track', 'Other')}</span>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                b1, b2, b3 = st.columns([1.2, 1.1, 0.9])
-                with b1:
-                    if st.button("📄 Prepare", key=f"dash_prep_{job['id']}", type="primary", width="stretch"):
-                        with st.spinner("Tailoring PDF resume & checking ATS score..."):
-                            try:
-                                pkg = prepare_application_package(job, profile)
-                                st.success(f"Ready in NEO Queue (#{pkg['application_id']})!")
-                            except Exception as e:
-                                st.error(str(e))
-                with b2:
-                    if job.get("url"):
-                        st.link_button("🔗 Apply", job["url"], width="stretch")
-                with b3:
-                    if st.button("🙈 Hide", key=f"dash_hide_{job['id']}", width="stretch"):
-                        dismiss_job(job["id"], reason_status="dismissed")
-                        st.rerun()
-    else:
-        st.info("No active jobs match this filter. Click 'Active Unapplied' above or run a fresh search.")
-
-    st.divider()
-
-    # 2. Analytics Charts
-    st.markdown('<div class="panel-header">📈 Live Discovery Breakdown</div>', unsafe_allow_html=True)
-    if active_jobs:
-        ch1, ch2 = st.columns(2)
-        with ch1:
-            st.caption("Active Jobs by Engineering Track")
-            track_counts = Counter(j.get("track") or "Other" for j in active_jobs)
-            df_track = pd.DataFrame(
-                {"Track": list(track_counts.keys()), "Jobs": list(track_counts.values())}
-            ).set_index("Track")
-            st.bar_chart(df_track, color="#2563eb", height=210)
-        with ch2:
-            st.caption("Active Jobs by Source")
-            source_counts = Counter(j.get("source") or "Unknown" for j in active_jobs)
-            df_src = pd.DataFrame(
-                {"Source": list(source_counts.keys()), "Jobs": list(source_counts.values())}
-            ).set_index("Source")
-            st.bar_chart(df_src, color="#10b981", height=210)
-
-    st.divider()
-
-    # 3. Full Interactive Table + CSV Export
-    head_l, head_r = st.columns([3, 1])
-    with head_l:
-        st.markdown(
-            f'<div class="panel-header">📋 All Matching Opportunities ({len(filtered_jobs)})</div>',
-            unsafe_allow_html=True,
-        )
-    if filtered_jobs:
+    if table_filtered:
         table_rows = [
             {
                 "Score": int(j.get("match_score") or 0),
+                "Track": j.get("track", ""),
                 "Company": j.get("company", ""),
                 "Role": j.get("title", ""),
                 "Location": j.get("location", ""),
-                "Track": j.get("track", ""),
                 "Eligibility": j.get("eligibility_status", ""),
                 "Source": j.get("source", ""),
-                "Date": j.get("discovery_date", ""),
                 "Apply Link": j.get("url") or None,
             }
-            for j in filtered_jobs[:100]
+            for j in table_filtered[:100]
         ]
-        with head_r:
+        with exp_col:
             csv_bytes = pd.DataFrame(table_rows).to_csv(index=False).encode("utf-8")
             st.download_button(
                 "⬇️ Export CSV",
@@ -770,7 +836,7 @@ elif active_view == "⚡ NEO 1-Tap Queue":
 
     ready_queue = [a for a in apps_detailed if a.get("status") in ("awaiting_approval", "approved")]
     if not ready_queue:
-        st.info("No tailored packages in the queue yet. Click '⚡ NEO Auto-Prepare Top 3' on the Live Dashboard!")
+        st.info("No tailored packages in the queue yet. Click '⚡ Auto-Tailor Top 3' on the Live Dashboard!")
     else:
         for app_row in ready_queue:
             app_id = app_row["id"]
@@ -807,7 +873,7 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                         )
                         with open(resume_file, "rb") as f:
                             st.download_button(
-                                "⬇️ 1. Tailored Resume",
+                                "⬇️ 1. Tailored PDF",
                                 f,
                                 file_name=resume_file.name,
                                 mime=mime,
@@ -841,7 +907,7 @@ elif active_view == "🔍 Discover & Manual":
         active_jobs,
         quick_mode=st.session_state.get("quick_mode", "All"),
     )
-    st.subheader("Active Job Feed & Manual Entry")
+    st.subheader(f"Active Job Feed ({st.session_state.get('quick_mode', 'All')}) & Manual Entry")
     st.caption("Already-applied and hidden jobs are permanently excluded from this feed and future daily runs.")
 
     c_add, c_csv = st.columns(2)
@@ -931,15 +997,15 @@ elif active_view == "🔍 Discover & Manual":
                             except Exception as e:
                                 st.error(str(e))
                 with b2:
-                    if st.button("📄 Prepare Application Package", key=f"prep_{job['id']}", type="primary", width="stretch"):
+                    if st.button("📄 Auto-Tailor PDF & ATS", key=f"prep_{job['id']}", type="primary", width="stretch"):
                         with st.spinner("Generating tailored PDF resume, ATS score & screening answers..."):
                             try:
                                 analysis = st.session_state.get(f"analysis_{job['id']}")
                                 pkg = prepare_application_package(job, profile, analysis=analysis)
                                 ats_val = (pkg.get("ats_report") or {}).get("ats_score", "N/A")
                                 st.success(
-                                    f"Queued Application #{pkg['application_id']} (ATS Score: {ats_val}/100). "
-                                    "Open '⚡ NEO 1-Tap Queue' or '📋 All Applications'."
+                                    f"Tailored PDF Ready! Application #{pkg['application_id']} (ATS Score: {ats_val}/100). "
+                                    "Open '⚡ NEO 1-Tap Queue' to download."
                                 )
                             except Exception as e:
                                 st.error(f"Preparation failed: {e}")
