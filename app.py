@@ -371,7 +371,7 @@ def _ingest_google_batch(profile_data: dict) -> dict:
 
 
 def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
-    """Renders a job card with automatic JD-based PDF (for applying) + Word (.docx) downloads and ATS score."""
+    """Renders a job card with automatic JD-based PDF (for applying) + Word (.docx) downloads and Regenerate."""
     elig = job.get("eligibility_status", "Review required")
     pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
     score_val = int(job.get("match_score") or 0)
@@ -443,6 +443,13 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
                         key=f"{prefix}_dl_docx_{job['id']}",
                         width="stretch",
                     )
+            if st.button("🔄 Regenerate", key=f"{prefix}_regen_{job['id']}", width="stretch"):
+                with st.spinner("Regenerating full 1-page PDF & Word resume..."):
+                    try:
+                        prepare_application_package(job, profile)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
         else:
             if st.button("📄 Auto-Tailor PDF & Word", key=f"{prefix}_prep_{job['id']}", type="primary", width="stretch"):
                 with st.spinner("Tailoring PDF & Word resume to JD and scoring ATS..."):
@@ -566,10 +573,17 @@ def _apply_filters(job_list: list[dict], quick_mode: str = "All") -> list[dict]:
 
 # Load live data
 active_jobs = list_jobs(include_applied=False)
+jobs_by_id = {j["id"]: j for j in active_jobs}
 apps = list_applications()
 apps_detailed = list_applications_detailed()
 runs = list_discovery_runs(limit=5)
-prepped_by_job_id = {a.get("job_id"): a for a in apps_detailed if a.get("status") != "rejected"}
+
+# Always map each job_id to its newest non-rejected prepared package
+prepped_by_job_id = {
+    a.get("job_id"): a
+    for a in sorted(apps_detailed, key=lambda x: int(x.get("id") or 0))
+    if a.get("status") != "rejected"
+}
 
 last_sync = runs[0].get("run_at", "")[:16].replace("T", " ") + " UTC" if runs else "Ready to sync"
 today_str = datetime.now().strftime("%Y-%m-%d")
@@ -902,6 +916,12 @@ elif active_view == "⚡ NEO 1-Tap Queue":
                                     key=f"neo_dl_docx_{app_id}",
                                     width="stretch",
                                 )
+                    matched_job = jobs_by_id.get(app_row.get("job_id"))
+                    if matched_job and st.button("🔄 Regenerate", key=f"neo_regen_{app_id}", width="stretch"):
+                        with st.spinner("Regenerating full 1-page PDF & Word resume..."):
+                            reject_application(app_id)
+                            prepare_application_package(matched_job, profile)
+                            st.rerun()
                 with m2:
                     if app_row.get("url"):
                         st.link_button("🔗 2. Open & Apply (PDF)", app_row["url"], type="primary", width="stretch")
