@@ -5,11 +5,12 @@ import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pandas as pd
 import requests
 import streamlit as st
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 from src.applications import (
@@ -224,67 +225,124 @@ st.markdown(
 profile = load_profile()
 
 
-def _google_24h_url(query: str) -> str:
-    # tbs=qdr:d filters Google Search results to the past 24 hours
-    return f"https://www.google.com/search?q={quote_plus(query)}&tbs=qdr:d"
+def _fetch_page_jd(url: str, fallback_snippet: str) -> str:
+    """Fetches clean text from a job page to use as the JD, with snippet fallback."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.status_code != 200:
+            return fallback_snippet
+        soup = BeautifulSoup(r.text, "html.parser")
+        for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+            tag.decompose()
+        text = " ".join(soup.get_text(separator=" ").split())
+        return text[:3000] if len(text) > 120 else fallback_snippet
+    except Exception:
+        return fallback_snippet
 
 
-def _ingest_google_serper(profile_data: dict) -> dict:
-    """Optional live Google Search ingestion if SERPER_API_KEY is configured in Secrets."""
+def _search_and_ingest_in_app(query: str, profile_data: dict, max_results: int = 8) -> dict:
+    """Fetches live job links + JDs directly inside Streamlit (no Google new tab)."""
     api_key = os.getenv("SERPER_API_KEY", "").strip()
-    if not api_key:
-        return {"inserted": 0, "fetched": 0, "enabled": False}
+    raw_results = []
+    source_label = "Google Search (24h)"
 
-    queries = [
-        "ece freshers jobs in bangalore 2027 opening",
-        "embedded systems intern bangalore 2027",
-        "vlsi design verification intern bangalore 2027",
-        "software engineer intern bangalore 2027 batch",
-    ]
-    fetched = 0
-    inserted = 0
-    for q in queries:
+    # 1. Try Serper.dev Google API if configured in Secrets
+    if api_key:
         try:
             resp = requests.post(
                 "https://google.serper.dev/search",
                 headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
-                json={"q": q, "gl": "in", "hl": "en", "tbs": "qdr:d", "num": 10},
+                json={"q": query, "gl": "in", "hl": "en", "tbs": "qdr:d", "num": max_results},
                 timeout=15,
             )
-            if resp.status_code != 200:
-                continue
-            organic = resp.json().get("organic", [])
-            for item in organic:
-                title = (item.get("title") or "").strip()
-                link = (item.get("link") or "").strip()
-                snippet = (item.get("snippet") or "").strip()
-                if not title or not link:
-                    continue
-                fetched += 1
-                company = title.split("-")[0].split("|")[0].strip()[:60] or "Google Search"
-                ev = evaluate_job(
-                    {"title": title, "location": "Bengaluru, Karnataka, India", "jd": f"{title}\n{snippet}"},
-                    profile_data,
-                )
-                if ev["eligibility_status"] == "Excluded":
-                    continue
-                res = save_job(
-                    title=title[:140],
-                    company=company,
-                    location="Bengaluru, Karnataka, India",
-                    url=link,
-                    source="Google Search (24h)",
-                    jd=f"{title}\n\n{snippet}",
-                    track=ev["track"],
-                    match_score=ev["match_score"],
-                    eligibility_status=ev["eligibility_status"],
-                    eligibility_reasons=ev["eligibility_reasons"],
-                )
-                if res.get("status") == "inserted":
-                    inserted += 1
+            if resp.status_code == 200:
+                for item in resp.json().get("organic", []):
+                    raw_results.append(
+                        {
+                            "title": (item.get("title") or "").strip(),
+                            "link": (item.get("link") or "").strip(),
+                            "snippet": (item.get("snippet") or "").strip(),
+                        }
+                    )
         except Exception:
+            pass
+
+    # 2. Zero-key fallback: Live DuckDuckGo HTML search
+    if not raw_results:
+        source_label = "Live Web Search"
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            resp = requests.post(
+                "https://html.duckduckgo.com/html/",
+                data={"q": query, "df": "d"},
+                headers=headers,
+                timeout=12,
+            )
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for res in soup.select(".result")[:max_results]:
+                a_tag = res.select_one(".result__a")
+                snip_tag = res.select_one(".result__snippet")
+                if not a_tag:
+                    continue
+                href = a_tag.get("href", "")
+                if "uddg=" in href:
+                    href = unquote(parse_qs(urlparse(href).query).get("uddg", [href])[0])
+                raw_results.append(
+                    {
+                        "title": a_tag.get_text(strip=True),
+                        "link": href,
+                        "snippet": snip_tag.get_text(strip=True) if snip_tag else "",
+                    }
+                )
+        except Exception:
+            pass
+
+    inserted = 0
+    for item in raw_results:
+        title, link, snippet = item["title"], item["link"], item["snippet"]
+        if not title or not link.startswith("http"):
             continue
-    return {"inserted": inserted, "fetched": fetched, "enabled": True}
+        company = title.split("-")[0].split("|")[0].strip()[:60] or "Web Career"
+        full_jd = _fetch_page_jd(link, f"{title}\n\n{snippet}")
+        ev = evaluate_job(
+            {"title": title, "location": "Bengaluru, Karnataka, India", "jd": full_jd},
+            profile_data,
+        )
+        if ev["eligibility_status"] == "Excluded":
+            continue
+        res = save_job(
+            title=title[:140],
+            company=company,
+            location="Bengaluru, Karnataka, India",
+            url=link,
+            source=source_label,
+            jd=full_jd,
+            track=ev["track"],
+            match_score=ev["match_score"],
+            eligibility_status=ev["eligibility_status"],
+            eligibility_reasons=ev["eligibility_reasons"],
+        )
+        if res.get("status") == "inserted":
+            inserted += 1
+
+    return {"fetched": len(raw_results), "inserted": inserted, "source": source_label}
+
+
+def _ingest_google_batch(profile_data: dict) -> dict:
+    """Runs core Bengaluru 2027 web queries during full 24h discovery."""
+    queries = [
+        "ece freshers jobs in bangalore 2027 opening",
+        "embedded systems intern bangalore 2027",
+        "vlsi design verification intern bangalore 2027",
+    ]
+    total_fetched = 0
+    total_inserted = 0
+    for q in queries:
+        r = _search_and_ingest_in_app(q, profile_data, max_results=5)
+        total_fetched += r["fetched"]
+        total_inserted += r["inserted"]
+    return {"fetched": total_fetched, "inserted": total_inserted}
 
 
 # ================= SIDEBAR =================
@@ -302,7 +360,7 @@ with st.sidebar:
     neo_auto_prep = st.toggle(
         "Auto-prepare 75%+ Bengaluru matches",
         value=False,
-        help="Automatically generates tailored 1-page ATS resumes & answers for top Bengaluru matches after discovery.",
+        help="Automatically generates tailored 1-page ATS PDF resumes & answers for top Bengaluru matches after discovery.",
     )
     daily_goal = st.number_input("Daily application goal", min_value=1, max_value=25, value=5, step=1)
 
@@ -316,13 +374,13 @@ with st.sidebar:
     st.divider()
     target_cap = int(profile.get("daily_discovery_target", 100))
     if st.button(f"🚀 Run 24h Discovery ({target_cap} cap)", type="primary", width="stretch"):
-        with st.spinner("Scanning 24h job boards + Google radar & evaluating 2027 ECE eligibility..."):
+        with st.spinner("Scanning 24h job boards + live web search & evaluating 2027 ECE eligibility..."):
             try:
                 result = discover_and_store(profile, target_cap)
-                g_res = _ingest_google_serper(profile)
+                g_res = _ingest_google_batch(profile)
                 msg = result["summary"]
-                if g_res["enabled"]:
-                    msg += f" | Google 24h: +{g_res['inserted']} new"
+                if g_res["inserted"] > 0:
+                    msg += f" | Web 24h: +{g_res['inserted']} new"
                 if neo_auto_prep:
                     fresh_jobs = sort_jobs_bengaluru_first(list_jobs(include_applied=False))
                     existing_job_ids = {a.get("job_id") for a in list_applications()}
@@ -397,7 +455,7 @@ st.markdown(
     <div class="hero-banner">
       <div class="hero-left">
         <h1>🎯 Sruthi AI Job Agent — NEO Command Center</h1>
-        <p>Live 24h Google & Board Radar • 2027 B.Tech ECE Guardrail • 1-Click Tailored ATS Resumes</p>
+        <p>In-App 24h Web & Board Discovery • 2027 B.Tech ECE Guardrail • 1-Click Tailored ATS PDF Resumes</p>
       </div>
       <div class="hero-badge">
         <span class="live-dot"></span>LIVE &nbsp;|&nbsp; Last Sync: {last_sync}
@@ -460,12 +518,12 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 
 # ================= TAB 1: LIVE DASHBOARD =================
 with tab1:
-    # Live Google 24h Search Radar (Just like searching in Google!)
+    # In-App Live 24h Search Radar (Fetches links & JDs right inside the app!)
     st.markdown(
         """
         <div class="radar-box">
-          <strong>🔎 Live Google 24h Job Radar (Bengaluru • 2027 ECE &amp; Freshers)</strong><br>
-          <span style="font-size:0.84rem;color:#475569;">Tap any pill below to open live Google results posted in the last 24 hours directly on your phone or laptop:</span>
+          <strong>🔎 In-App Live 24h Job Radar (Bengaluru • 2027 ECE &amp; Freshers)</strong><br>
+          <span style="font-size:0.84rem;color:#475569;">Tap any pill or enter a query below to fetch live job links &amp; JDs directly into your dashboard (no new Google tab):</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -474,29 +532,33 @@ with tab1:
         ("📡 ECE Freshers 2027 BLR", "ece freshers jobs in bangalore 2027 opening"),
         ("🔌 Embedded / Firmware Intern", "embedded systems firmware intern bangalore 2027"),
         ("🔬 VLSI / RTL Design Intern", "vlsi rtl design verification intern bangalore 2027"),
-        ("🌐 Cisco / Qualcomm / TI", "site:careers.cisco.com OR site:qualcomm.com OR site:ti.com intern bangalore 2027"),
+        ("🌐 Cisco / Qualcomm / TI", "Cisco OR Qualcomm OR Texas Instruments intern bangalore 2027"),
         ("💻 Junior Software / Python", "junior software engineer python intern bangalore 2027"),
     ]
     g_cols = st.columns(len(g_presets))
     for idx, (label, q_str) in enumerate(g_presets):
         with g_cols[idx]:
-            st.link_button(label, _google_24h_url(q_str), width="stretch")
+            if st.button(label, key=f"inapp_g_{idx}", width="stretch"):
+                with st.spinner(f"Fetching live links & JDs for '{q_str}'..."):
+                    res = _search_and_ingest_in_app(q_str, profile)
+                    st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added to your feed!).")
+                    st.rerun()
 
     gs1, gs2 = st.columns([4, 1.3])
     with gs1:
         custom_google_q = st.text_input(
-            "Custom Google 24h search",
+            "Custom 24h job search",
             value="ece freshers jobs in bangalore 2027 opening",
             label_visibility="collapsed",
-            placeholder="Type any Google job query (automatically filtered to last 24h)...",
+            placeholder="Type any job query to fetch links & JDs directly into the app...",
         )
     with gs2:
-        st.link_button(
-            "🔎 Search Google (24h)",
-            _google_24h_url(custom_google_q or "ece freshers jobs in bangalore 2027 opening"),
-            type="primary",
-            width="stretch",
-        )
+        if st.button("🔎 Fetch Jobs (In-App)", type="primary", width="stretch"):
+            q_run = custom_google_q.strip() or "ece freshers jobs in bangalore 2027 opening"
+            with st.spinner(f"Fetching live links & JDs for '{q_run}'..."):
+                res = _search_and_ingest_in_app(q_run, profile)
+                st.success(f"Fetched {res['fetched']} results ({res['inserted']} new jobs added to your feed!).")
+                st.rerun()
 
     st.divider()
 
@@ -517,7 +579,7 @@ with tab1:
             if not unprepped:
                 st.info("Top matching jobs are already prepared in your NEO 1-Tap Queue!")
             else:
-                with st.spinner(f"NEO AI is tailoring {len(unprepped)} 1-page ATS resumes..."):
+                with st.spinner(f"NEO AI is tailoring {len(unprepped)} 1-page ATS PDF resumes..."):
                     for j in unprepped:
                         prepare_application_package(j, profile)
                     st.success(f"Prepared {len(unprepped)} packages! Open the '⚡ NEO 1-Tap Queue' tab.")
@@ -565,7 +627,7 @@ with tab1:
                 b1, b2, b3 = st.columns([1.2, 1.1, 0.9])
                 with b1:
                     if st.button("📄 Prepare", key=f"dash_prep_{job['id']}", type="primary", width="stretch"):
-                        with st.spinner("Tailoring resume..."):
+                        with st.spinner("Tailoring PDF resume & checking ATS score..."):
                             try:
                                 pkg = prepare_application_package(job, profile)
                                 st.success(f"Ready in NEO Queue (#{pkg['application_id']})!")
@@ -651,7 +713,7 @@ with tab2:
         """
         <div class="neo-box">
           <strong>⚡ NEO 1-Tap Mobile Application Deck</strong><br>
-          <span style="font-size:0.86rem;color:#334155;">Each card below already has a tailored 1-page ATS resume &amp; screening answers ready. On mobile: <b>1. Download Resume → 2. Tap Open &amp; Apply → 3. Mark Submitted</b>.</span>
+          <span style="font-size:0.86rem;color:#334155;">Each card below already has a tailored 1-page ATS PDF resume &amp; screening answers ready. On mobile: <b>1. Download Resume → 2. Tap Open &amp; Apply → 3. Mark Submitted</b>.</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -818,7 +880,7 @@ with tab3:
                                 st.error(str(e))
                 with b2:
                     if st.button("📄 Prepare Application Package", key=f"prep_{job['id']}", type="primary", width="stretch"):
-                        with st.spinner("Generating tailored resume, ATS score & screening answers..."):
+                        with st.spinner("Generating tailored PDF resume, ATS score & screening answers..."):
                             try:
                                 analysis = st.session_state.get(f"analysis_{job['id']}")
                                 pkg = prepare_application_package(job, profile, analysis=analysis)
@@ -837,15 +899,21 @@ with tab3:
                 analysis = st.session_state.get(f"analysis_{job['id']}")
                 if analysis:
                     st.json(analysis)
-                    if st.button("Generate tailored resume + ATS score", key=f"resume_{job['id']}"):
+                    if st.button("Generate tailored PDF resume + ATS score", key=f"resume_{job['id']}"):
                         path, ats = create_tailored_resume_with_ats(profile, analysis, job)
-                        st.success(f"Resume created: {path} | ATS Score: {ats['ats_score']}/100 ({ats['grade']})")
-                        with open(path, "rb") as f:
+                        resume_p = Path(path)
+                        mime = (
+                            "application/pdf"
+                            if resume_p.suffix.lower() == ".pdf"
+                            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                        st.success(f"Resume created: {resume_p.name} | ATS Score: {ats['ats_score']}/100 ({ats['grade']})")
+                        with open(resume_p, "rb") as f:
                             st.download_button(
-                                "Download tailored resume",
+                                f"⬇️ Download Tailored Resume ({resume_p.suffix.upper().lstrip('.')})",
                                 f,
-                                file_name=Path(path).name,
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                file_name=resume_p.name,
+                                mime=mime,
                                 key=f"download_{job['id']}",
                             )
 
