@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -103,13 +103,15 @@ st.markdown(
         border-left: 5px solid #10b981;
         border-radius: 12px;
         padding: 14px 20px;
-        margin-bottom: 1rem;
+        margin-bottom: 0.8rem;
         box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
     }
     .goal-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
         font-size: 0.92rem;
         font-weight: 700;
         color: #0f172a;
@@ -126,6 +128,18 @@ st.markdown(
         height: 100%;
         background: linear-gradient(90deg, #10b981 0%, #2563eb 100%);
         border-radius: 999px;
+    }
+
+    /* Follow-Up Nudge */
+    .followup-card {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-left: 5px solid #f59e0b;
+        border-radius: 10px;
+        padding: 10px 16px;
+        margin-bottom: 1rem;
+        font-size: 0.86rem;
+        color: #78350f;
     }
 
     /* Split Side Headers */
@@ -216,11 +230,13 @@ st.markdown(
         font-size: 0.72rem;
         font-weight: 600;
         margin-right: 5px;
+        margin-bottom: 3px;
     }
     .pill-green { background: #dcfce7; color: #166534; }
     .pill-blue { background: #dbeafe; color: #1e40af; }
     .pill-amber { background: #fef3c7; color: #92400e; }
     .pill-purple { background: #f3e8ff; color: #6b21a8; }
+    .pill-hot { background: #fee2e2; color: #991b1b; }
 
     .panel-header {
         font-size: 1.12rem;
@@ -250,6 +266,8 @@ if "app_status_override" not in st.session_state:
     st.session_state["app_status_override"] = "All"
 if "mnc_news_cache" not in st.session_state:
     st.session_state["mnc_news_cache"] = {}
+if "quick_prep_cache" not in st.session_state:
+    st.session_state["quick_prep_cache"] = {}
 
 
 def _fetch_page_jd(url: str, fallback_snippet: str) -> str:
@@ -419,24 +437,133 @@ def _summarize_mnc_news_with_gemini(company_name: str, items: list[dict]) -> str
         return f"AI summary unavailable ({exc}). Review the live links below."
 
 
+def _generate_quick_prep(job: dict, profile_data: dict) -> str:
+    """Generates 3 likely technical questions + 1 project talking point for a specific JD."""
+    is_core = "core" in (job.get("track") or "").lower()
+    fallback = (
+        "**Top 3 Likely Questions:**\n"
+        + (
+            "1. Explain how hardware interrupts and 7-segment display multiplexing work in Embedded C.\n"
+            "2. Differentiate between UART, SPI, and I2C protocols and their typical use cases.\n"
+            "3. Explain FSM design, setup/hold time, and basic RTL verification flow.\n\n"
+            "**Project Talking Point:** Highlight leading a 6-member team on the Arduino UNO Real-Time Digital Clock and your VLSI Guru training."
+            if is_core
+            else
+            "1. Explain how PCA reduces dimensionality and why you paired Eigenfaces with an MLP classifier.\n"
+            "2. Write a Python/C function to reverse a string or find duplicates in an array and explain its time complexity.\n"
+            "3. How did you tune the distance threshold for imposter detection (ACCEPTED/REJECTED)?\n\n"
+            "**Project Talking Point:** Walk through your iStudio AI Internship Face Recognition pipeline from data preprocessing to Matplotlib visualization."
+        )
+    )
+
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return fallback
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+        prompt = (
+            f"Candidate: Final-year B.Tech ECE (2027). Projects: (1) Face Recognition using PCA & MLP in Python, "
+            f"(2) Real-Time Digital Clock on Arduino UNO in Embedded C. Training: VLSI Design & Verification, iStudio AI Intern.\n"
+            f"Target Role: {job.get('title')} at {job.get('company')}\n"
+            f"JD Snippet: {(job.get('jd') or '')[:1000]}\n\n"
+            f"Give a concise 3-minute interview prep card:\n"
+            f"- **Top 3 Likely Technical Questions** (1 line each)\n"
+            f"- **1 Best Project Talking Point** connecting the candidate's real projects to this JD."
+        )
+        resp = client.models.generate_content(
+            model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            contents=prompt,
+        )
+        return (resp.text or "").strip() or fallback
+    except Exception:
+        return fallback
+
+
+def _build_referral_dm(job: dict, profile_data: dict) -> str:
+    """Builds a concise 3-line LinkedIn referral/outreach DM for a specific role."""
+    company = (job.get("company") or "your team").strip()
+    title = (job.get("title") or "the engineering role").strip()
+    is_core = "core" in (job.get("track") or "").lower()
+    cand_name = profile_data.get("name", "Candidate")
+    skills_line = (
+        "VLSI Design & Verification training (VLSI Guru) and hands-on Embedded C / Arduino / digital logic projects"
+        if is_core
+        else "hands-on Python (NumPy, scikit-learn, OpenCV), C, Git, and an AI internship at iStudio, Pune"
+    )
+    return (
+        f"Hi [Name], I'm {cand_name}, a final-year B.Tech ECE student (2027 batch) with {skills_line}. "
+        f"I just applied for the {title} opening at {company} and am available immediately for a 6-month internship / fresher role. "
+        f"Would you be open to reviewing my 1-page resume or pointing me to the hiring team? Thanks so much!"
+    )
+
+
+def _get_ppo_badge_html(job: dict) -> str:
+    """Returns a high-priority badge if the role mentions PPO, 6-month internship, or 2027 batch."""
+    blob = f"{job.get('title', '')} {job.get('jd', '')}".lower()
+    if any(k in blob for k in ("ppo", "pre-placement", "6 month", "6-month", "six month")):
+        return '<span class="pill pill-hot">🔥 PPO / 6-Mo Intern</span>'
+    if "intern" in blob and "2027" in blob:
+        return '<span class="pill pill-hot">🔥 2027 Intern</span>'
+    if "graduate engineer trainee" in blob or "get" in (job.get("title") or "").lower().split():
+        return '<span class="pill pill-purple">🎓 2027 GET</span>'
+    return ""
+
+
+def _compute_streak_and_followups(apps_list: list[dict]) -> tuple[int, list[dict]]:
+    """Computes consecutive active submission days and apps submitted 5–10 days ago needing follow-up."""
+    submitted_dates: set[str] = set()
+    followups: list[dict] = []
+    now = datetime.now()
+
+    for a in apps_list:
+        if a.get("status") != "submitted":
+            continue
+        raw_dt = str(a.get("submitted_at") or "")[:10]
+        if not raw_dt:
+            continue
+        submitted_dates.add(raw_dt)
+        try:
+            dt = datetime.strptime(raw_dt, "%Y-%m-%d")
+            days_ago = (now - dt).days
+            if 5 <= days_ago <= 10:
+                followups.append({**a, "days_ago": days_ago})
+        except Exception:
+            pass
+
+    streak = 0
+    cursor = now
+    if cursor.strftime("%Y-%m-%d") not in submitted_dates:
+        cursor = now - timedelta(days=1)
+    while cursor.strftime("%Y-%m-%d") in submitted_dates:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    return streak, followups
+
+
 def _clean_download_name(company: str, track: str, ext: str) -> str:
     """Returns a clean, recruiter-friendly filename for PDF/Word downloads."""
     comp = (company or "").strip()
     bad_words = ("conference", "alert", "jobs in", "web career", "google", "search", "opening")
     cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", comp).strip("_")
+    cand_prefix = re.sub(r"[^a-zA-Z0-9]+", "_", (profile.get("name") or "Candidate").strip()).strip("_")
 
     if not cleaned or len(cleaned) > 22 or any(b in comp.lower() for b in bad_words):
         suffix = "Core_ECE" if "core" in (track or "").lower() else "IT_Software"
-        return f"Sruthi_M_{suffix}_Resume.{ext}"
+        return f"{cand_prefix}_{suffix}_Resume.{ext}"
 
-    return f"Sruthi_M_{cleaned}_Resume.{ext}"
+    return f"{cand_prefix}_{cleaned}_Resume.{ext}"
 
 
 def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
-    """Renders a job card with automatic JD-based PDF (for applying) + Word (.docx) downloads and Regenerate."""
+    """Renders a job card with PPO badges, PDF/Word downloads, Regenerate, Referral DM, and Quick Prep."""
     elig = job.get("eligibility_status", "Review required")
     pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
     score_val = int(job.get("match_score") or 0)
+    ppo_html = _get_ppo_badge_html(job)
     try:
         reasons = json.loads(job.get("eligibility_reasons") or "[]")
         reason_txt = reasons[0] if reasons else "Matched 2027 India engineering criteria."
@@ -469,6 +596,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
           <div class="spotlight-meta">📍 {job.get('location', 'India')} &nbsp;•&nbsp; {job.get('source', '')}</div>
           <div class="spotlight-reason">{reason_txt[:95]}</div>
           <div>
+            {ppo_html}
             <span class="pill {pill_cls}">{elig}</span>
             <span class="pill pill-blue">{job.get('track', 'Other')}</span>
           </div>
@@ -529,6 +657,22 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
         if st.button("🙈 Hide", key=f"{prefix}_hide_{job['id']}", width="stretch"):
             dismiss_job(job["id"], reason_status="dismissed")
             st.rerun()
+
+    # 1-Tap Referral DM & 3-Minute Quick Prep
+    u1, u2 = st.columns(2)
+    with u1:
+        with st.expander("💬 Copy Referral DM"):
+            st.code(_build_referral_dm(job, profile), language=None)
+    with u2:
+        with st.expander("🎯 3-Min Quick Prep"):
+            prep_key = f"{job['id']}"
+            if prep_key in st.session_state["quick_prep_cache"]:
+                st.markdown(st.session_state["quick_prep_cache"][prep_key])
+            else:
+                if st.button("⚡ Generate Prep Card", key=f"{prefix}_qprep_{job['id']}", width="stretch"):
+                    with st.spinner("Generating 3-minute interview prep..."):
+                        st.session_state["quick_prep_cache"][prep_key] = _generate_quick_prep(job, profile)
+                        st.rerun()
 
 
 # ================= SIDEBAR =================
@@ -657,6 +801,7 @@ submitted_today = sum(
 submitted_total = sum(1 for a in apps if a.get("status") == "submitted")
 goal_progress_count = max(submitted_today, 0)
 goal_pct = min(100, int((goal_progress_count / max(1, daily_goal)) * 100))
+streak_days, followup_apps = _compute_streak_and_followups(apps_detailed)
 
 # ================= HERO BANNER =================
 st.markdown(
@@ -674,7 +819,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ================= DAILY MOMENTUM BAR =================
+# ================= DAILY MOMENTUM BAR + STREAK =================
 motivation_msg = (
     "🔥 Daily target crushed!"
     if goal_progress_count >= daily_goal
@@ -684,7 +829,7 @@ st.markdown(
     f"""
     <div class="goal-card">
       <div class="goal-header">
-        <span>⚡ Today's Application Momentum: {goal_progress_count} / {daily_goal} Submitted ({goal_pct}%)</span>
+        <span>⚡ Today's Application Momentum: {goal_progress_count} / {daily_goal} Submitted ({goal_pct}%) &nbsp;|&nbsp; 🔥 Streak: {streak_days} day(s)</span>
         <span style="color:#2563eb;font-size:0.85rem;">{motivation_msg}</span>
       </div>
       <div class="goal-track">
@@ -694,6 +839,18 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ================= FOLLOW-UP NUDGE BANNER =================
+if followup_apps:
+    names = ", ".join(f"{f['company']} ({f['days_ago']}d ago)" for f in followup_apps[:3])
+    st.markdown(
+        f"""
+        <div class="followup-card">
+          <strong>⏰ Follow-Up Nudge:</strong> {len(followup_apps)} application(s) submitted 5–10 days ago ({names}). Send a polite LinkedIn check-in to boost your reply rate!
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # ================= CLICKABLE TOP KPI STRIP =================
 ece_count = sum(1 for j in active_jobs if j.get("track") == "Core Engineering")
@@ -864,7 +1021,7 @@ if active_view == "📊 Live Dashboard":
 
     st.divider()
 
-    # Full Interactive Table + Quick Filter
+    # Mobile-Friendly Collapsible Table + Quick Filter
     qf_col, exp_col = st.columns([4, 1])
     with qf_col:
         quick_mode = st.segmented_control(
@@ -875,25 +1032,21 @@ if active_view == "📊 Live Dashboard":
         ) or "All"
     table_filtered = _apply_filters(active_jobs, quick_mode=quick_mode)
 
-    st.markdown(
-        f'<div class="panel-header">📋 All Matching Opportunities ({len(table_filtered)})</div>',
-        unsafe_allow_html=True,
-    )
-    if table_filtered:
-        table_rows = [
-            {
-                "Score": int(j.get("match_score") or 0),
-                "Track": j.get("track", ""),
-                "Company": j.get("company", ""),
-                "Role": j.get("title", ""),
-                "Location": j.get("location", ""),
-                "Eligibility": j.get("eligibility_status", ""),
-                "Source": j.get("source", ""),
-                "Apply Link": j.get("url") or None,
-            }
-            for j in table_filtered[:100]
-        ]
-        with exp_col:
+    table_rows = [
+        {
+            "Score": int(j.get("match_score") or 0),
+            "Track": j.get("track", ""),
+            "Company": j.get("company", ""),
+            "Role": j.get("title", ""),
+            "Location": j.get("location", ""),
+            "Eligibility": j.get("eligibility_status", ""),
+            "Source": j.get("source", ""),
+            "Apply Link": j.get("url") or None,
+        }
+        for j in table_filtered[:100]
+    ]
+    with exp_col:
+        if table_rows:
             csv_bytes = pd.DataFrame(table_rows).to_csv(index=False).encode("utf-8")
             st.download_button(
                 "⬇️ Export CSV",
@@ -902,15 +1055,20 @@ if active_view == "📊 Live Dashboard":
                 mime="text/csv",
                 width="stretch",
             )
-        st.dataframe(
-            table_rows,
-            width="stretch",
-            hide_index=True,
-            column_config={
-                "Score": st.column_config.ProgressColumn("Match Score", min_value=0, max_value=100, format="%d%%"),
-                "Apply Link": st.column_config.LinkColumn("Job URL", display_text="Open"),
-            },
-        )
+
+    with st.expander(f"📋 All Matching Opportunities ({len(table_filtered)}) — Tap to Expand Table", expanded=False):
+        if table_rows:
+            st.dataframe(
+                table_rows,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Score": st.column_config.ProgressColumn("Match Score", min_value=0, max_value=100, format="%d%%"),
+                    "Apply Link": st.column_config.LinkColumn("Job URL", display_text="Open"),
+                },
+            )
+        else:
+            st.info("No jobs match the selected quick filter.")
 
 # ================= VIEW 2: MNC DRIVE RADAR (TCS, INFOSYS, WIPRO, ETC.) =================
 elif active_view == "📢 MNC Drive Radar":
