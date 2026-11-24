@@ -40,7 +40,7 @@ from src.sources.manual import import_jobs_csv
 
 load_dotenv()
 st.set_page_config(
-    page_title="Sruthi AI Job Agent — NEO Command Center",
+    page_title="AI Job Agent — NEO Command Center",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -407,7 +407,7 @@ def _summarize_mnc_news_with_gemini(company_name: str, items: list[dict]) -> str
             f"Based ONLY on these search results for {company_name} 2027 batch hiring in India, write exactly 3 short bullet points:\n"
             f"1. **Drive Status:** Is official 2027 batch registration open right now, expected soon, or not announced?\n"
             f"2. **Roles / Eligibility:** Any mentioned roles (e.g., NQT, System Engineer, GET) and whether B.Tech ECE 2027 is eligible.\n"
-            f"3. **Watch Out / Action:** Note if any links look like paid tests (like paid TCS iON NQT) or unofficial blogs, and what Sruthi should do.\n\n"
+            f"3. **Watch Out / Action:** Note if any links look like paid tests (like paid TCS iON NQT) or unofficial blogs, and what the candidate should do.\n\n"
             f"Search Results:\n{snippets}"
         )
         resp = client.models.generate_content(
@@ -587,7 +587,7 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Discovery failed: {e}")
 
-    st.caption("🛡️ Final submission always requires Sruthi's explicit approval & manual click.")
+    st.caption("🛡️ Final submission always requires explicit candidate approval & manual click.")
 
 
 def _apply_filters(job_list: list[dict], quick_mode: str = "All") -> list[dict]:
@@ -663,7 +663,7 @@ st.markdown(
     f"""
     <div class="hero-banner">
       <div class="hero-left">
-        <h1>🎯 Sruthi AI Job Agent — NEO Command Center</h1>
+        <h1>🎯 AI Job Agent — NEO Command Center</h1>
         <p>Core ECE &amp; IT Split View • MNC Drive Radar • Automatic JD-Based PDF &amp; Word Resumes</p>
       </div>
       <div class="hero-badge">
@@ -898,7 +898,7 @@ if active_view == "📊 Live Dashboard":
             st.download_button(
                 "⬇️ Export CSV",
                 data=csv_bytes,
-                file_name="sruthi_opportunities.csv",
+                file_name="job_opportunities.csv",
                 mime="text/csv",
                 width="stretch",
             )
@@ -1352,7 +1352,7 @@ elif active_view == "📋 All Applications":
                 if status == "awaiting_approval":
                     c_ok, c_no = st.columns(2)
                     with c_ok:
-                        if st.button("✅ Approve Application (Sruthi's OK)", key=f"approve_{app_id}", type="primary", width="stretch"):
+                        if st.button("✅ Approve Application", key=f"approve_{app_id}", type="primary", width="stretch"):
                             approve_application(app_id)
                             st.rerun()
                     with c_no:
