@@ -616,11 +616,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
           <div class="spotlight-title">{job.get('title', '')[:62]}</div>
           <div class="spotlight-meta">📍 {job.get('location', 'India')} &nbsp;•&nbsp; {job.get('source', '')}</div>
           <div class="spotlight-reason">{reason_txt[:95]}</div>
-          <div>
-            {ppo_html}
-            <span class="pill {pill_cls}">{elig}</span>
-            <span class="pill pill-blue">{job.get('track', 'Other')}</span>
-          </div>
+          <div>{ppo_html}<span class="pill {pill_cls}">{elig}</span><span class="pill pill-blue">{job.get('track', 'Other')}</span></div>
         </div>
         """,
         unsafe_allow_html=True,
