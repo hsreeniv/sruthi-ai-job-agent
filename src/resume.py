@@ -6,15 +6,24 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from docx import Document
-from docx.enum.text import WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    HRFlowable,
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 RESUMES_DIR = Path("data/resumes")
 RESUMES_DIR.mkdir(parents=True, exist_ok=True)
@@ -28,7 +37,6 @@ TECH_KEYWORDS = [
     "scikit-learn", "data structures", "algorithms", "data analytics", "software",
 ]
 
-# Verified master data matching Sruthi's reference resume
 MASTER_DEFAULTS = {
     "name": "SRUTHI M",
     "phone": "+91 9014771797",
@@ -38,13 +46,13 @@ MASTER_DEFAULTS = {
         {
             "title": "B.Tech — Electronics & Communication Engineering",
             "dates": "Sep 2023 – May 2027",
-            "subtitle": "Aditya College of Engineering, Madanapalle | JNTU Anantapur  |  CGPA: 7.5/10",
+            "subtitle": "Aditya College of Engineering, Madanapalle | JNTU Anantapur | CGPA: 7.5/10",
             "extra": "Coursework: Digital Electronics, Microprocessors & Microcontrollers, Signals & Systems, Data Structures & Algorithms (C), Linear Algebra & Probability",
         },
         {
             "title": "Intermediate (Class XII) — MPC",
             "dates": "2021 – 2023",
-            "subtitle": "Sri Chaitanya Junior College, Tirupathi  |  Score: 90.3%",
+            "subtitle": "Sri Chaitanya Junior College, Tirupathi | Score: 90.3%",
             "extra": "",
         },
     ],
@@ -112,9 +120,9 @@ MASTER_DEFAULTS = {
 }
 
 
-def _slugify(text: str) -> str:
+def _slugify(text: str, max_len: int = 32) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", (text or "role").strip()).strip("_")
-    return cleaned[:40] or "role"
+    return cleaned[:max_len].strip("_") or "role"
 
 
 def _esc(text: str) -> str:
@@ -133,8 +141,14 @@ def _is_core_ece_role(job: dict) -> bool:
     if track == "it":
         return False
     text = f"{job.get('title', '')} {job.get('jd', '')}".lower()
-    core_hits = sum(1 for k in ("vlsi", "rtl", "embedded", "firmware", "hardware", "fpga", "asic", "microcontroller", "ece") if k in text)
-    it_hits = sum(1 for k in ("software", "python", "ai", "ml", "data", "web", "developer", "java", "qa") if k in text)
+    core_hits = sum(
+        1 for k in ("vlsi", "rtl", "embedded", "firmware", "hardware", "fpga", "asic", "microcontroller", "ece")
+        if k in text
+    )
+    it_hits = sum(
+        1 for k in ("software", "python", "ai", "ml", "data", "web", "developer", "java", "qa")
+        if k in text
+    )
     return core_hits >= it_hits
 
 
@@ -193,7 +207,6 @@ def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) ->
     skill_map = dict(MASTER_DEFAULTS["skill_categories"])
     ordered_skills = [(cat, skill_map[cat]) for cat in skill_order if cat in skill_map]
 
-    # Prioritize track-matching internship and project first
     target_track = "core" if is_core else "it"
     internships = sorted(MASTER_DEFAULTS["internships"], key=lambda x: 0 if x["track"] == target_track else 1)
     projects = sorted(MASTER_DEFAULTS["projects"], key=lambda x: 0 if x["track"] == target_track else 1)
@@ -206,7 +219,7 @@ def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) ->
     return {
         "name": profile.get("name") or MASTER_DEFAULTS["name"],
         "tagline": tagline,
-        "contact": f"{phone}  ·  {email}  ·  {location}",
+        "contact": f"{phone}  |  {email}  |  {location}",
         "summary": (analysis or {}).get("tailored_summary") or default_summary,
         "education": MASTER_DEFAULTS["education"],
         "skill_categories": ordered_skills,
@@ -217,10 +230,18 @@ def _build_tailored_sections(profile: dict, analysis: dict | None, job: dict) ->
     }
 
 
-def _pdf_lr_row(left_html: str, right_text: str, left_style: ParagraphStyle, right_style: ParagraphStyle) -> Table:
+def _pdf_lr_row(
+    left_html: str,
+    right_text: str,
+    left_style: ParagraphStyle,
+    right_style: ParagraphStyle,
+    usable_width: float,
+) -> Table:
+    date_w = 1.45 * inch
     tbl = Table(
         [[Paragraph(left_html, left_style), Paragraph(_esc(right_text), right_style)]],
-        colWidths=[5.65 * inch, 1.65 * inch],
+        colWidths=[usable_width - date_w, date_w],
+        hAlign="LEFT",
     )
     tbl.setStyle(
         TableStyle(
@@ -228,7 +249,7 @@ def _pdf_lr_row(left_html: str, right_text: str, left_style: ParagraphStyle, rig
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                 ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0.5),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
@@ -237,97 +258,147 @@ def _pdf_lr_row(left_html: str, right_text: str, left_style: ParagraphStyle, rig
 
 
 def _write_pdf(sections: dict, pdf_path: Path) -> None:
+    margin_lr = 0.48 * inch
+    margin_tb = 0.36 * inch
     doc = SimpleDocTemplate(
         str(pdf_path),
         pagesize=A4,
-        leftMargin=0.48 * inch,
-        rightMargin=0.48 * inch,
-        topMargin=0.38 * inch,
-        bottomMargin=0.38 * inch,
+        leftMargin=margin_lr,
+        rightMargin=margin_lr,
+        topMargin=margin_tb,
+        bottomMargin=margin_tb,
     )
+    usable_w = doc.width
+
     styles = getSampleStyleSheet()
     navy = colors.HexColor("#1e3a8a")
     dark = colors.HexColor("#0f172a")
     muted = colors.HexColor("#475569")
+    rule_col = colors.HexColor("#1e3a8a")
 
-    name_st = ParagraphStyle("Name", parent=styles["Heading1"], fontSize=16.5, leading=19, textColor=dark, spaceAfter=1)
-    tag_st = ParagraphStyle("Tag", parent=styles["Normal"], fontSize=9.0, leading=11.5, textColor=navy, spaceAfter=1)
-    contact_st = ParagraphStyle("Contact", parent=styles["Normal"], fontSize=8.3, leading=10.5, textColor=muted, spaceAfter=4)
-    sec_st = ParagraphStyle("Sec", parent=styles["Heading2"], fontSize=9.6, leading=11.5, textColor=navy, spaceBefore=6, spaceAfter=2)
-    title_st = ParagraphStyle("ItemTitle", parent=styles["Normal"], fontSize=9.0, leading=11.2, textColor=dark)
-    date_st = ParagraphStyle("Date", parent=styles["Normal"], fontSize=8.3, leading=11.2, textColor=muted, alignment=2)
-    sub_st = ParagraphStyle("Sub", parent=styles["Normal"], fontSize=8.3, leading=10.5, textColor=muted, spaceAfter=1.5)
-    body_st = ParagraphStyle("Body", parent=styles["Normal"], fontSize=8.6, leading=11.2, textColor=dark, spaceAfter=1.8)
-    bullet_st = ParagraphStyle("Bullet", parent=body_st, leftIndent=10, firstLineIndent=-8, spaceAfter=1.5)
+    name_st = ParagraphStyle(
+        "Name", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=16.5, leading=19.5, textColor=dark, alignment=TA_CENTER, spaceAfter=2,
+    )
+    tag_st = ParagraphStyle(
+        "Tag", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=9.0, leading=11.5, textColor=navy, alignment=TA_CENTER, spaceAfter=2,
+    )
+    contact_st = ParagraphStyle(
+        "Contact", parent=styles["Normal"], fontName="Helvetica",
+        fontSize=8.4, leading=10.5, textColor=muted, alignment=TA_CENTER, spaceAfter=5,
+    )
+    sec_st = ParagraphStyle(
+        "Sec", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=9.4, leading=11.5, textColor=navy, alignment=TA_LEFT, spaceBefore=6.5, spaceAfter=1.5,
+    )
+    title_st = ParagraphStyle(
+        "ItemTitle", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=8.9, leading=11.0, textColor=dark, alignment=TA_LEFT,
+    )
+    date_st = ParagraphStyle(
+        "Date", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=8.3, leading=11.0, textColor=muted, alignment=TA_RIGHT,
+    )
+    sub_st = ParagraphStyle(
+        "Sub", parent=styles["Normal"], fontName="Helvetica-Oblique",
+        fontSize=8.2, leading=10.2, textColor=muted, alignment=TA_LEFT, spaceAfter=1.5,
+    )
+    body_st = ParagraphStyle(
+        "Body", parent=styles["Normal"], fontName="Helvetica",
+        fontSize=8.5, leading=11.2, textColor=dark, alignment=TA_JUSTIFY, spaceAfter=1.8,
+    )
+    skill_st = ParagraphStyle(
+        "Skill", parent=body_st, alignment=TA_LEFT, spaceAfter=1.6,
+    )
+    bullet_st = ParagraphStyle(
+        "Bullet", parent=body_st, leftIndent=12, bulletIndent=3, spaceAfter=1.6,
+    )
+
+    story = [
+        Paragraph(_esc(sections["name"]), name_st),
+        Paragraph(_esc(sections["tagline"]), tag_st),
+        Paragraph(_esc(sections["contact"]), contact_st),
+        HRFlowable(width="100%", thickness=1.1, color=rule_col, spaceBefore=0, spaceAfter=4),
+    ]
 
     def add_section(heading: str) -> None:
         story.append(Paragraph(heading, sec_st))
-        story.append(HRFlowable(width="100%", thickness=0.7, color=colors.HexColor("#94a3b8"), spaceAfter=3))
-
-    story = [
-        Paragraph(f"<b>{_esc(sections['name'])}</b>", name_st),
-        Paragraph(f"<b>{_esc(sections['tagline'])}</b>", tag_st),
-        Paragraph(_esc(sections["contact"]), contact_st),
-    ]
+        story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#94a3b8"), spaceBefore=0, spaceAfter=3))
 
     add_section("PROFESSIONAL SUMMARY")
     story.append(Paragraph(_esc(sections["summary"]), body_st))
 
     add_section("EDUCATION")
     for ed in sections["education"]:
-        story.append(_pdf_lr_row(f"<b>{_esc(ed['title'])}</b>", ed["dates"], title_st, date_st))
-        story.append(Paragraph(_esc(ed["subtitle"]), sub_st))
+        block = [
+            _pdf_lr_row(f"<b>{_esc(ed['title'])}</b>", ed["dates"], title_st, date_st, usable_w),
+            Paragraph(_esc(ed["subtitle"]), sub_st),
+        ]
         if ed.get("extra"):
-            story.append(Paragraph(_esc(ed["extra"]), body_st))
+            block.append(Paragraph(_esc(ed["extra"]), body_st))
+        story.append(KeepTogether(block))
 
     add_section("TECHNICAL SKILLS")
     for cat, vals in sections["skill_categories"]:
-        story.append(Paragraph(f"<b>{_esc(cat)}:</b> {_esc(vals)}", body_st))
+        story.append(Paragraph(f"<b>{_esc(cat)}:</b> {_esc(vals)}", skill_st))
 
     add_section("INTERNSHIPS &amp; TRAINING")
     for exp in sections["internships"]:
-        story.append(_pdf_lr_row(f"<b>{_esc(exp['title'])}</b>", exp["dates"], title_st, date_st))
-        story.append(Paragraph(f"<i>{_esc(exp['subtitle'])}</i>", sub_st))
+        block = [
+            _pdf_lr_row(f"<b>{_esc(exp['title'])}</b>", exp["dates"], title_st, date_st, usable_w),
+            Paragraph(_esc(exp["subtitle"]), sub_st),
+        ]
         for b in exp["bullets"]:
-            story.append(Paragraph(f"•  {_esc(b)}", bullet_st))
+            block.append(Paragraph(_esc(b), bullet_st, bulletText="•"))
+        story.append(KeepTogether(block))
 
     add_section("PROJECTS")
     for proj in sections["projects"]:
-        story.append(_pdf_lr_row(f"<b>{_esc(proj['title'])}</b>", proj["dates"], title_st, date_st))
-        story.append(Paragraph(f"<i>{_esc(proj['subtitle'])}</i>", sub_st))
+        block = [
+            _pdf_lr_row(f"<b>{_esc(proj['title'])}</b>", proj["dates"], title_st, date_st, usable_w),
+            Paragraph(_esc(proj["subtitle"]), sub_st),
+        ]
         for b in proj["bullets"]:
-            story.append(Paragraph(f"•  {_esc(b)}", bullet_st))
+            block.append(Paragraph(_esc(b), bullet_st, bulletText="•"))
+        story.append(KeepTogether(block))
 
     add_section("CERTIFICATIONS")
     for cert in sections["certifications"]:
-        story.append(Paragraph(f"•  {_esc(cert)}", bullet_st))
+        story.append(Paragraph(_esc(cert), bullet_st, bulletText="•"))
 
     add_section("ACHIEVEMENTS")
     for ach in sections["achievements"]:
-        story.append(Paragraph(f"•  {_esc(ach)}", bullet_st))
+        story.append(Paragraph(_esc(ach), bullet_st, bulletText="•"))
 
     doc.build(story)
 
 
-def _add_docx_bottom_border(paragraph) -> None:
+def _add_docx_bottom_border(paragraph, color_hex: str = "94A3B8", sz: str = "6") -> None:
     pPr = paragraph._p.get_or_add_pPr()
     pBdr = OxmlElement("w:pBdr")
     bottom = OxmlElement("w:bottom")
     bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), "6")
+    bottom.set(qn("w:sz"), sz)
     bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "94A3B8")
+    bottom.set(qn("w:color"), color_hex)
     pBdr.append(bottom)
     pPr.append(pBdr)
 
 
 def _write_docx(sections: dict, docx_path: Path) -> None:
     doc = Document()
+    margin_lr = 0.48
+    margin_tb = 0.36
+    usable_in = 8.27 - (2 * margin_lr)  # Exact A4 printable width (7.31 in)
+
     for sec in doc.sections:
-        sec.top_margin = Inches(0.42)
-        sec.bottom_margin = Inches(0.42)
-        sec.left_margin = Inches(0.52)
-        sec.right_margin = Inches(0.52)
+        sec.page_width = Inches(8.27)
+        sec.page_height = Inches(11.69)
+        sec.top_margin = Inches(margin_tb)
+        sec.bottom_margin = Inches(margin_tb)
+        sec.left_margin = Inches(margin_lr)
+        sec.right_margin = Inches(margin_lr)
 
     navy = RGBColor(0x1E, 0x3A, 0x8A)
     dark = RGBColor(0x0F, 0x17, 0x2A)
@@ -335,61 +406,89 @@ def _write_docx(sections: dict, docx_path: Path) -> None:
 
     def add_section_header(text: str) -> None:
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(6)
+        p.paragraph_format.space_before = Pt(6.5)
         p.paragraph_format.space_after = Pt(2.5)
         r = p.add_run(text)
         r.bold = True
+        r.font.name = "Calibri"
         r.font.size = Pt(9.8)
         r.font.color.rgb = navy
-        _add_docx_bottom_border(p)
+        _add_docx_bottom_border(p, "94A3B8", "6")
 
     def add_lr_line(left: str, right: str) -> None:
         p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_before = Pt(2.5)
         p.paragraph_format.space_after = Pt(0.5)
-        p.paragraph_format.tab_stops.add_tab_stop(Inches(7.2), WD_TAB_ALIGNMENT.RIGHT)
+        p.paragraph_format.tab_stops.add_tab_stop(Inches(usable_in), WD_TAB_ALIGNMENT.RIGHT)
         r1 = p.add_run(left)
         r1.bold = True
+        r1.font.name = "Calibri"
         r1.font.size = Pt(9.2)
         r1.font.color.rgb = dark
         r2 = p.add_run(f"\t{right}")
+        r2.bold = True
+        r2.font.name = "Calibri"
         r2.font.size = Pt(8.5)
         r2.font.color.rgb = muted
 
-    def add_line(text: str, size: float = 8.8, italic: bool = False, color: RGBColor = dark) -> None:
+    def add_body(text: str, size: float = 8.8, italic: bool = False, color: RGBColor = dark, justify: bool = True) -> None:
         p = doc.add_paragraph()
         p.paragraph_format.space_after = Pt(1.5)
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY if justify else WD_ALIGN_PARAGRAPH.LEFT
         r = p.add_run(text)
         r.italic = italic
+        r.font.name = "Calibri"
         r.font.size = Pt(size)
         r.font.color.rgb = color
 
-    # Header
+    def add_bullet(text: str) -> None:
+        p = doc.add_paragraph()
+        p.paragraph_format.left_indent = Inches(0.18)
+        p.paragraph_format.first_line_indent = Inches(-0.14)
+        p.paragraph_format.space_after = Pt(1.5)
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        r = p.add_run(f"•  {text}")
+        r.font.name = "Calibri"
+        r.font.size = Pt(8.7)
+        r.font.color.rgb = dark
+
+    # Centered Header
     p_name = doc.add_paragraph()
+    p_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_name.paragraph_format.space_after = Pt(1)
     r_name = p_name.add_run(sections["name"])
     r_name.bold = True
-    r_name.font.size = Pt(16.5)
+    r_name.font.name = "Calibri"
+    r_name.font.size = Pt(17)
     r_name.font.color.rgb = dark
 
     p_tag = doc.add_paragraph()
-    p_tag.paragraph_format.space_after = Pt(1)
+    p_tag.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_tag.paragraph_format.space_after = Pt(1.5)
     r_tag = p_tag.add_run(sections["tagline"])
     r_tag.bold = True
-    r_tag.font.size = Pt(9.2)
+    r_tag.font.name = "Calibri"
+    r_tag.font.size = Pt(9.3)
     r_tag.font.color.rgb = navy
 
-    add_line(sections["contact"], size=8.5, color=muted)
+    p_con = doc.add_paragraph()
+    p_con.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_con.paragraph_format.space_after = Pt(4)
+    r_con = p_con.add_run(sections["contact"])
+    r_con.font.name = "Calibri"
+    r_con.font.size = Pt(8.6)
+    r_con.font.color.rgb = muted
+    _add_docx_bottom_border(p_con, "1E3A8A", "10")
 
     add_section_header("PROFESSIONAL SUMMARY")
-    add_line(sections["summary"], size=8.8)
+    add_body(sections["summary"], size=8.8, justify=True)
 
     add_section_header("EDUCATION")
     for ed in sections["education"]:
         add_lr_line(ed["title"], ed["dates"])
-        add_line(ed["subtitle"], size=8.5, color=muted)
+        add_body(ed["subtitle"], size=8.4, italic=True, color=muted, justify=False)
         if ed.get("extra"):
-            add_line(ed["extra"], size=8.5)
+            add_body(ed["extra"], size=8.6, justify=True)
 
     add_section_header("TECHNICAL SKILLS")
     for cat, vals in sections["skill_categories"]:
@@ -397,31 +496,35 @@ def _write_docx(sections: dict, docx_path: Path) -> None:
         p.paragraph_format.space_after = Pt(1.5)
         r_cat = p.add_run(f"{cat}: ")
         r_cat.bold = True
-        r_cat.font.size = Pt(8.8)
+        r_cat.font.name = "Calibri"
+        r_cat.font.size = Pt(8.7)
+        r_cat.font.color.rgb = dark
         r_val = p.add_run(vals)
-        r_val.font.size = Pt(8.8)
+        r_val.font.name = "Calibri"
+        r_val.font.size = Pt(8.7)
+        r_val.font.color.rgb = dark
 
     add_section_header("INTERNSHIPS & TRAINING")
     for exp in sections["internships"]:
         add_lr_line(exp["title"], exp["dates"])
-        add_line(exp["subtitle"], size=8.4, italic=True, color=muted)
+        add_body(exp["subtitle"], size=8.3, italic=True, color=muted, justify=False)
         for b in exp["bullets"]:
-            add_line(f"•  {b}", size=8.7)
+            add_bullet(b)
 
     add_section_header("PROJECTS")
     for proj in sections["projects"]:
         add_lr_line(proj["title"], proj["dates"])
-        add_line(proj["subtitle"], size=8.4, italic=True, color=muted)
+        add_body(proj["subtitle"], size=8.3, italic=True, color=muted, justify=False)
         for b in proj["bullets"]:
-            add_line(f"•  {b}", size=8.7)
+            add_bullet(b)
 
     add_section_header("CERTIFICATIONS")
     for cert in sections["certifications"]:
-        add_line(f"•  {cert}", size=8.7)
+        add_bullet(cert)
 
     add_section_header("ACHIEVEMENTS")
     for ach in sections["achievements"]:
-        add_line(f"•  {ach}", size=8.7)
+        add_bullet(ach)
 
     doc.save(str(docx_path))
 
@@ -430,7 +533,13 @@ def create_tailored_resume_with_ats(profile: dict, analysis: dict | None, job: d
     """Generates both PDF (for applying) and DOCX (for editing) and returns (pdf_path, ats_report)."""
     sections = _build_tailored_sections(profile, analysis, job)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"Sruthi_M_{_slugify(job.get('company', 'Company'))}_{_slugify(job.get('title', 'Role'))}_{stamp}"
+
+    comp_slug = _slugify(job.get("company", "Company"), max_len=24)
+    role_slug = _slugify(job.get("title", "Role"), max_len=30)
+    if comp_slug.lower() == role_slug.lower() or comp_slug.lower() in role_slug.lower():
+        base_name = f"Sruthi_M_{role_slug}_{stamp}"
+    else:
+        base_name = f"Sruthi_M_{comp_slug}_{role_slug}_{stamp}"
 
     pdf_path = RESUMES_DIR / f"{base_name}.pdf"
     docx_path = RESUMES_DIR / f"{base_name}.docx"
