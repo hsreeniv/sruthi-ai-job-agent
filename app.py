@@ -443,11 +443,9 @@ def _generate_quick_prep(job: dict, profile_data: dict) -> dict:
     title = (job.get("title") or "Engineer").strip()
     is_core = "core" in (job.get("track") or "").lower()
 
-    # 1. Search web (all-time) for real previously asked interview questions
     search_q = f"{company} {title} interview questions fresher intern India"
     web_items, _ = _search_web_raw(search_q, max_results=5, time_filter="")
 
-    # Fallback Q&A if Gemini is unavailable
     fallback_qa = (
         f"### 🎯 Likely Q&A for {company} — {title}\n\n"
         + (
@@ -504,20 +502,29 @@ def _generate_quick_prep(job: dict, profile_data: dict) -> dict:
 
 
 def _build_referral_dm(job: dict, profile_data: dict) -> str:
-    """Builds a concise 3-line LinkedIn referral/outreach DM for a specific role."""
+    """Builds a polished, professional LinkedIn referral request tailored to the role and track."""
     company = (job.get("company") or "your team").strip()
-    title = (job.get("title") or "the engineering role").strip()
+    title = (job.get("title") or "this role").strip()
     is_core = "core" in (job.get("track") or "").lower()
-    cand_name = profile_data.get("name", "Candidate")
-    skills_line = (
-        "VLSI Design & Verification training (VLSI Guru) and hands-on Embedded C / Arduino / digital logic projects"
-        if is_core
-        else "hands-on Python (NumPy, scikit-learn, OpenCV), C, Git, and an AI internship at iStudio, Pune"
-    )
+    cand_name = (profile_data.get("name") or "Candidate").strip()
+
+    if is_core:
+        focus = (
+            "VLSI Design & Verification training and hands-on work in Embedded C, "
+            "digital systems, and microcontrollers"
+        )
+    else:
+        focus = (
+            "hands-on experience in Python, machine learning/computer vision (PCA & MLP), "
+            "and software fundamentals from an AI internship"
+        )
+
     return (
-        f"Hi [Name], I'm {cand_name}, a final-year B.Tech ECE student (2027 batch) with {skills_line}. "
-        f"I just applied for the {title} opening at {company} and am available immediately for a 6-month internship / fresher role. "
-        f"Would you be open to reviewing my 1-page resume or pointing me to the hiring team? Thanks so much!"
+        f"Hi [Name], I hope you're doing well. I'm {cand_name}, a final-year B.Tech ECE "
+        f"student graduating in May 2027 with {focus}.\n\n"
+        f"I recently applied for the {title} opportunity at {company} and would love to know "
+        f"if you're open to sharing a referral or pointing me toward the right contact. "
+        f"Happy to share my 1-page resume and details—thank you for your time!"
     )
 
 
@@ -585,6 +592,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
     pill_cls = "pill-green" if elig == "Likely eligible" else "pill-amber"
     score_val = int(job.get("match_score") or 0)
     ppo_html = _get_ppo_badge_html(job)
+    track_label = job.get("track", "Other")
     try:
         reasons = json.loads(job.get("eligibility_reasons") or "[]")
         reason_txt = reasons[0] if reasons else "Matched 2027 India engineering criteria."
@@ -606,6 +614,9 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
         if p.exists():
             resume_file = p
 
+    # Keep HTML on single lines without leading spaces after empty {ppo_html} so Markdown never treats it as code
+    pills_html = f'{ppo_html}<span class="pill {pill_cls}">{elig}</span><span class="pill pill-blue">{track_label}</span>'
+
     st.markdown(
         f"""
         <div class="spotlight-card">
@@ -616,7 +627,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
           <div class="spotlight-title">{job.get('title', '')[:62]}</div>
           <div class="spotlight-meta">📍 {job.get('location', 'India')} &nbsp;•&nbsp; {job.get('source', '')}</div>
           <div class="spotlight-reason">{reason_txt[:95]}</div>
-          <div>{ppo_html}<span class="pill {pill_cls}">{elig}</span><span class="pill pill-blue">{job.get('track', 'Other')}</span></div>
+          <div>{pills_html}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -635,7 +646,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
                 st.download_button(
                     "⬇️ Tailored PDF",
                     f,
-                    file_name=_clean_download_name(job.get("company", ""), job.get("track", ""), dl_ext),
+                    file_name=_clean_download_name(job.get("company", ""), track_label, dl_ext),
                     mime=mime,
                     key=f"{prefix}_dl_{job['id']}",
                     type="primary",
@@ -647,7 +658,7 @@ def _render_job_card(job: dict, prepped_by_job_id: dict, prefix: str) -> None:
                     st.download_button(
                         "📝 Word (.docx)",
                         f_doc,
-                        file_name=_clean_download_name(job.get("company", ""), job.get("track", ""), "docx"),
+                        file_name=_clean_download_name(job.get("company", ""), track_label, "docx"),
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         key=f"{prefix}_dl_docx_{job['id']}",
                         width="stretch",
